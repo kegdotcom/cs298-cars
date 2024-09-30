@@ -1,0 +1,17 @@
+<html>
+  <head>
+    <title>CS298 Cars</title>
+  </head>
+  <body>
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center">
+      <canvas style="border: 1px solid black" id="298-canvas" width="500" height="500"></canvas>
+      <div style="display: flex; flex-direction: row; justify-content: center; align-items: center">
+        <button id="play-pause">Pause</button>
+        <input type="range" min="0" max="10" step="0.1" value="1" id="speed" />
+      </div>
+    </div>
+    <script src="cs298.js" type="module" defer></script>
+    <script src="math-functions.js" type="module" defer></script>
+    <script src="model.js" type="module" defer></script>
+  </body>
+</html>
