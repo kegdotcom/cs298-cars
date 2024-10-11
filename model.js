@@ -1,5 +1,3 @@
-import * as tf from "@tensorflow/tfjs";
-
 const model = tf.sequential();
 
 model.add(tf.layers.dense({
