@@ -1,7 +1,8 @@
-import { distance_to_circle, distance_to_line, reflect } from "./math-functions.js";
+import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
+import model from "./model.js";
 
 let obstacleCt = 0;
-
+const sqrt1_2 = 1 / Math.sqrt(2);
 class Wall {
   constructor (x1, y1, x2, y2) {
     this.id = obstacleCt++;
@@ -30,6 +31,7 @@ class Car {
     this.vx = vx;
     this.vy = vy;
     this.theta = Math.atan2(vy, vx);
+    this.rayLengths = new Array(5);
   }
   static radius = 10;
 
@@ -38,7 +40,7 @@ class Car {
     // position context
     context.translate(this.x, this.y);
     // context.rotate(Math.atan2(this.vy, this.vx) + baseRotation);
-    context.strokeStyle = "black";
+    context.strokeStyle = this.id == 0 ? "blue" : "black";
     context.fillStyle = "blue";
 
     // inner dot
@@ -53,38 +55,49 @@ class Car {
     context.arc(0, 0, Car.radius, 0, 2*Math.PI);
     context.closePath();
     context.stroke();
-    // direction line
-    context.beginPath();
-    context.moveTo(0, 0);
-    context.lineTo(this.vx * Car.radius, this.vy * Car.radius);
-    context.stroke();
     
-    // draw rays
-    // const numRays = 5;
-    // for (let i = 0; i < numRays; i++) {
-    //   walls.forEach(wall => {
-    //     //
-    //   });
-    //   cars.forEach(car => {
-    //     //
-    //   });
-    //   context.strokeStyle = "red";
-    //   context.moveTo(0, 0);
-    //   context.rotate(-Math.PI/2);
-    //   for (let i = 0; i < numRays; i++) {
-    //     context.beginPath();
-    //     context.moveTo(0, 0);
-    //     context.lineTo(2*Car.radius, 0);
-    //     context.stroke();
-    //     context.rotate(Math.PI/4);
-    //   }
-    // }
+    const rays = [
+      [this.vy, -this.vx],
+      [sqrt1_2 * (this.vx + this.vy), sqrt1_2 * (this.vy - this.vx)],
+      [this.vx, this.vy],
+      [sqrt1_2 * (this.vx - this.vy), sqrt1_2 * (this.vy + this.vx)],
+      [-this.vy, this.vx],
+    ];
+
+    rays.forEach((ray, idx) => {
+      const obstacles = [...cars, ...walls];
+      let min_dist = 1e3;
+      let min_dist_pt;
+      obstacles.forEach(ob => {
+        if (ob.id === this.id) return;
+        let intersection = [];
+        if (ob instanceof Car) {
+          intersection = ray_intersect_circle([this.x, this.y], ray, [ob.x, ob.y], Car.radius);
+        } else {
+          intersection = ray_intersect_seg([this.x, this.y], ray, [ob.x1, ob.y1], [ob.x2, ob.y2]);
+        }
+        const intersection_dist = intersection ? Math.hypot(intersection[0] - this.x, intersection[1] - this.y) : 1000;
+        if (intersection && intersection_dist < min_dist) {
+          min_dist = intersection_dist;
+          min_dist_pt = intersection;
+        }
+      });
+      this.rayLengths[idx] = min_dist;
+      if (min_dist_pt) {
+        context.save();
+        context.strokeStyle = "red";
+        context.lineWidth = 0.5;
+        context.beginPath();
+        context.moveTo(0, 0);
+        context.lineTo(min_dist_pt[0] - this.x, min_dist_pt[1] - this.y);
+        context.stroke();
+        context.restore();
+      }
+    });
 
     context.restore();
   }
 }
-
-
 
 const canvas = document.getElementById("298-canvas");
 const context = canvas.getContext("2d");
@@ -122,7 +135,14 @@ function draw() {
   context.strokeStyle = "gray";
   walls.forEach(wall => wall.draw(context));
   context.restore();
-  cars.forEach(car => car.draw(context));
+  cars.forEach(car => {
+    car.draw(context);
+    if (car.id == 0) {
+      const inputData = tf.tensor2d([[...car.rayLengths, car.x, car.y, car.vx, car.vy]]);
+      const prediction = model.predict(inputData);
+      console.log(prediction);
+    }
+  });
 }
 
 function main() {
@@ -144,9 +164,8 @@ function main() {
             distance_to_line(car.x, car.y, obstacle.x1, obstacle.y1, obstacle.x2, obstacle.y2)
         )
       }));
-      obstacles.sort((a, b) => a.distance - b.distance);
+      // obstacles.sort((a, b) => a.distance - b.distance);
       obstacles.forEach(({obstacle, distance}) => {
-        console.log(obstacle, distance)
         const collisionKey = `${car.id}-${obstacle.id}`;
         const cooldown = collisionCooldowns.get(collisionKey);
         if (cooldown > 0) {
@@ -157,15 +176,21 @@ function main() {
           console.log("bam");
           collisionCooldowns.set(collisionKey, 3);
           let newVx, newVy;
+          let obVx, obVy;
           if (obstacle instanceof Car) {
             [newVx, newVy] = reflect(car.vx, car.vy, car.x - obstacle.x, car.y - obstacle.y);
-            const overlap = 2*Car.radius - distance;
-            car.x += (car.x - obstacle.x) * overlap / distance;
-            car.y += (car.y - obstacle.y) * overlap / distance;
+            [obVx, obVy] = reflect(obstacle.vx, obstacle.vy, obstacle.x - car.x, obstacle.y - car.y);
+            const overlap = Car.radius - distance/2;
+            const theta = Math.atan2(car.y - obstacle.y, car.x - obstacle.x);
+            car.x += overlap * Math.cos(theta);
+            car.y += overlap * Math.sin(theta);
+            obstacle.x -= overlap * Math.cos(theta);
+            obstacle.y -= overlap * Math.sin(theta);
+            obstacle.vx = obVx;
+            obstacle.vy = obVy;
           } else {
             [newVx, newVy] = reflect(car.vx, car.vy, (obstacle.y1 - obstacle.y2), (obstacle.x2 - obstacle.x1));
           }
-          console.log(newVx, newVy);
           car.vx = newVx;
           car.vy = newVy;
         }

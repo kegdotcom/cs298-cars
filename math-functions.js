@@ -19,6 +19,18 @@ export function reflect (vx, vy, nx, ny) {
     return [vx - 2*dot*nNx, vy - 2*dot*nNy];
 }
 
+function is_between(x, a, b) {
+  return x instanceof Array ?
+    x.every(xi => xi >= a && xi <= b) :
+    x >= a && x <= b;
+}
+
+function vec_add (x, y, a, b) {
+  return x.length == y.length ?
+    x.map((xi, i) => a*xi + b*y[i]) :
+    [];
+}
+
 export function intersect_st(x0 = [0, 0], dx0 = [1, 1], x1 = [0, 0], dx1 = [1, 1]) {
   let d = dx0[0] * dx1[1] - dx1[0] * dx0[1];
   if (d == 0) {
@@ -54,7 +66,7 @@ export function ray_intersect_circle(x0 = [0, 0], d0 = [1, 1], x1 = [0, 0], r = 
   const theta = thetaRay - thetaCircle;
   const d = Math.hypot(x1[0] - x0[0], x1[1] - x0[1]);
   const dNorm = d * Math.sin(theta)
-  if (dNorm > Car.radius) return [];
+  if (dNorm > r) return [];
 
   let a = d0[0] * d0[0] + d0[1] * d0[1];
   let b = 2 * d0[0] * (x0[0] - x1[0]) + 2 * d0[1] * (x0[1] - x1[1]);
