@@ -1,25 +1,47 @@
-const model = tf.sequential();
 
-model.add(tf.layers.dense({
-  units: 36,
-  inputShape: [9],
-  activation: "relu",
-}));
+class PolicyNetwork {
+  constructor (stateSize = 9, actionSize = 4) {
+    this.stateSize = stateSize;
+    this.actionSize = actionSize;
+    this.model = this.createModel(this.stateSize, this.actionSize);
+  }
 
-model.add(tf.layers.dense({
-  units: 12,
-  activation: "relu",
-}));
+  createModel (stateSize, actionSize) {
+    const model = tf.sequential();
+      
+    model.add(tf.layers.dense({
+      units: 24,
+      inputShape: [stateSize],
+      activation: "relu",
+    }));
+      
+    model.add(tf.layers.dense({
+      units: 24,
+      activation: "relu",
+    }));
+      
+    model.add(tf.layers.dense({
+      units: actionSize,
+      activation: "softmax",
+    }));
+  
+    return model;
+  }
+  // Todo: keg
+  static calcLoss () {
+    
+  }
+  // Todo: Justin
+  async predictAction (state, policyNetwork) {
 
-model.add(tf.layers.dense({
-  units: 4,
-  activation: "softmax",
-}));
+  }
 
-model.compile({
-  optimizer: 'adam',
-  loss: 'categoricalCrossentropy',
-  metrics: ['accuracy'],
-});
+  async updatePolicy (s, a, r, sPrime) {
+    
+  }
 
-export default model;
+  async trainAgent(env, policyNetwork){
+    
+  }
+}
+

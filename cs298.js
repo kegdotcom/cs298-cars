@@ -1,5 +1,5 @@
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
-import model from "./model.js";
+import Model from "./model.js";
 
 let obstacleCt = 0;
 const sqrt1_2 = 1 / Math.sqrt(2);
@@ -10,6 +10,10 @@ class Wall {
     this.y1 = y1;
     this.x2 = x2;
     this.y2 = y2;
+  }
+
+  getModelInput() {
+    return tf.tensor
   }
 
   draw(context) {
@@ -32,6 +36,7 @@ class Car {
     this.vy = vy;
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
+    this.model = new Model();
   }
   static radius = 10;
 
@@ -129,6 +134,11 @@ const walls = [
 
   }
 
+const speedChangeOffset = 0.1;
+const rotate = (deg = 1) => {
+
+}
+
 function draw() {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
@@ -139,7 +149,7 @@ function draw() {
     car.draw(context);
     if (car.id == 0) {
       const inputData = tf.tensor2d([[...car.rayLengths, car.x, car.y, car.vx, car.vy]]);
-      const prediction = model.predict(inputData);
+      const prediction = car.model.model.predict(inputData);
       console.log(prediction);
     }
   });
