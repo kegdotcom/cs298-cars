@@ -1,5 +1,5 @@
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
-import Model from "./model.js";
+import PolicyNetwork from "./model.js";
 
 let obstacleCt = 0;
 const sqrt1_2 = 1 / Math.sqrt(2);
@@ -28,6 +28,9 @@ class Wall {
 }
 
 class Car {
+  static radius = 10;
+  static dTheta = 1;
+  static dSpeed = 0.1;
   constructor (x, y, vx, vy) {
     this.id = obstacleCt++;
     this.x = x;
@@ -36,9 +39,55 @@ class Car {
     this.vy = vy;
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
-    this.model = new Model();
+    this.model = new PolicyNetwork();
   }
-  static radius = 10;
+
+  turnLeft () {
+    const theta = -Car.dTheta * Math.PI / 180;
+    const prevVX = this.vx;
+    const prevVY = this.vy;
+    this.vx = Math.cos(theta)*prevVX - Math.sin(theta)*prevVY;
+    this.vy = Math.sin(theta)*prevVX + Math.cos(theta)*prevVY;
+  }
+
+  turnRight () {
+    const theta = Car.dTheta * Math.PI / 180;
+    const prevVX = this.vx;
+    const prevVY = this.vy;
+    this.vx = Math.cos(theta)*prevVX - Math.sin(theta)*prevVY;
+    this.vy = Math.sin(theta)*prevVX + Math.cos(theta)*prevVY;
+  }
+
+  speedUp () {
+    const speed = Math.hypot(this.vx, this.vy);
+    this.vx = this.vx / speed * (speed + Car.dSpeed);
+    this.vy = this.vy / speed * (speed + Car.dSpeed);
+  }
+
+  slowDown () {
+    const speed = Math.hypot(this.vx, this.vy);
+    this.vx = this.vx / speed * (speed - Car.dSpeed);
+    this.vy = this.vy / speed * (speed - Car.dSpeed);
+  }
+
+  takeAction (action) {
+    switch (action) {
+      case 'L':
+        this.turnLeft();
+        break;
+      case 'R':
+        this.turnRight();
+        break;
+      case 'U':
+        this.speedUp();
+        break;
+      case 'D':
+        this.slowDown();
+        break;
+      default:
+        break;
+    }
+  }
 
   draw(context) {
     context.save();
@@ -125,20 +174,14 @@ const walls = [
 ]
 
   for (let i = 0; i < numWalls; i++) {
-    
     let lengthx = getRandom(100, 200)
     let lengthy = getRandom(100, 200)
     let startx = getRandom(0, 500-lengthx)
     let starty = getRandom(0, 500-lengthy)
     walls.push(new Wall(startx, starty, startx+lengthx, starty+lengthy));
-
   }
 
-const speedChangeOffset = 0.1;
-const rotate = (deg = 1) => {
-
-}
-
+let actionsTaken = 0;
 function draw() {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
@@ -148,9 +191,9 @@ function draw() {
   cars.forEach(car => {
     car.draw(context);
     if (car.id == 0) {
-      const inputData = tf.tensor2d([[...car.rayLengths, car.x, car.y, car.vx, car.vy]]);
-      const prediction = car.model.model.predict(inputData);
-      console.log(prediction);
+      const [action, prob] = car.model.predictActionProb([...car.rayLengths, car.x, car.y, car.vx, car.vy]);
+      console.log(`Action ${++actionsTaken}: ${action} with probability: ${prob}`);
+      car.takeAction(action);
     }
   });
 }
