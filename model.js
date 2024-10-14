@@ -1,4 +1,4 @@
-// import tf from "@tensorflow/tfjs";
+import tf from "@tensorflow/tfjs";
 // uncomment above to run the time test in terminal
 // comment above to run graphics simulation
 
@@ -103,6 +103,6 @@ function testTime (iterations) {
   const end = new Date();
   console.log(`${iterations} iterations completed in ${(end-start) / 1000} seconds`);
 }
-// if (process.argv.length > 2) {
-//   testTime(Number(process.argv[2]));
-// }
+if (process.argv.length > 2) {
+  testTime(Number(process.argv[2]));
+}

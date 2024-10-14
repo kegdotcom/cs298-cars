@@ -43,14 +43,16 @@ class Car {
   }
 
   turnLeft () {
+    // add a (1-b) offset to slow down on turns
     const theta = -Car.dTheta * Math.PI / 180;
     const prevVX = this.vx;
     const prevVY = this.vy;
     this.vx = Math.cos(theta)*prevVX - Math.sin(theta)*prevVY;
     this.vy = Math.sin(theta)*prevVX + Math.cos(theta)*prevVY;
   }
-
+  
   turnRight () {
+    // add a (1-b) offset to slow down on turns
     const theta = Car.dTheta * Math.PI / 180;
     const prevVX = this.vx;
     const prevVY = this.vy;
@@ -59,12 +61,14 @@ class Car {
   }
 
   speedUp () {
+    // change to be (1+a)*[vx,vy]
     const speed = Math.hypot(this.vx, this.vy);
     this.vx = this.vx / speed * (speed + Car.dSpeed);
     this.vy = this.vy / speed * (speed + Car.dSpeed);
   }
 
   slowDown () {
+    // change to be (1-a)*[vx,vy]
     const speed = Math.hypot(this.vx, this.vy);
     this.vx = this.vx / speed * (speed - Car.dSpeed);
     this.vy = this.vy / speed * (speed - Car.dSpeed);
