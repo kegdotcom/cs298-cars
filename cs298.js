@@ -148,6 +148,7 @@ class Car {
         context.restore();
       }
     });
+    
 
     context.restore();
   }

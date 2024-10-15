@@ -65,17 +65,31 @@ export default class PolicyNetwork {
   }
   
   calcReward (s, a) {
-    // TODO: implement function to calculate the reward from taking action a in state s
+    // calculate the reward from taking action a in state s
+    // find vx and vy
+    const velocity_xy = [s[s.length - 2],s[s.length - 1]];
+    const velocity = Math.sqrt(velocity_xy[0]**2 + velocity_xy[1]**2);
+    return velocity;
   }
 
   calcLoss (prob, reward) {
-    const loss = math.log(prob) * reward;
-    return loss;
+    // return the NEGATIVE log times the reward. 
+    return -math.log(prob) * reward;
   }
 
-
   async updatePolicy (s, a, r, sPrime) {
-    // TODO: use policy and rewards and loss to update network weights in training
+    // use policy and rewards and loss to update network weights in training
+    // SGD for pretraining. 
+    const optimizer = tf.train.sgd(0.01)
+
+    optimizer.minimize(() => {
+      const [action,prob] = this.predictActionProb(s);
+      const reward = this.calcReward(s,action);
+      // now calculate the loss
+      const loss = this.calcLoss(prob,reward);
+      return loss;
+    })
+
   }
 
   async trainAgent(env, policyNetwork){
