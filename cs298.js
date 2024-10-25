@@ -31,6 +31,8 @@ class Car {
   static radius = 10;
   static dTheta = 1;
   static dSpeed = 0.1;
+  static epsilon = 0.1; 
+  static delta = 0.5;
   constructor (x, y, vx, vy) {
     this.id = obstacleCt++;
     this.x = x;
@@ -42,32 +44,36 @@ class Car {
     this.model = new PolicyNetwork();
   }
 
+  getState() {
+    return [...this.rayLengths, this.x, this.y, this.vx, this.vy];
+  }
+
   turnLeft () {
     const theta = -Car.dTheta * Math.PI / 180;
     const prevVX = this.vx;
     const prevVY = this.vy;
-    this.vx = Math.cos(theta)*prevVX - Math.sin(theta)*prevVY;
-    this.vy = Math.sin(theta)*prevVX + Math.cos(theta)*prevVY;
+    this.vx = (1 - Car.epsilon) * (Math.cos(theta) * prevVX - Math.sin(theta) * prevVY);
+    this.vy = (1 - Car.epsilon) * (Math.sin(theta) * prevVX + Math.cos(theta) * prevVY);
   }
 
   turnRight () {
     const theta = Car.dTheta * Math.PI / 180;
     const prevVX = this.vx;
     const prevVY = this.vy;
-    this.vx = Math.cos(theta)*prevVX - Math.sin(theta)*prevVY;
-    this.vy = Math.sin(theta)*prevVX + Math.cos(theta)*prevVY;
+    this.vx = (1 - Car.epsilon) * (Math.cos(theta) * prevVX - Math.sin(theta) * prevVY);
+    this.vy = (1 - Car.epsilon) * (Math.sin(theta) * prevVX + Math.cos(theta) * prevVY);
   }
 
   speedUp () {
     const speed = Math.hypot(this.vx, this.vy);
-    this.vx = this.vx / speed * (speed + Car.dSpeed);
-    this.vy = this.vy / speed * (speed + Car.dSpeed);
+    this.vx = (1 / (1 - Car.dSpeed)) * (this.vx / speed * (speed + Car.dSpeed));
+    this.vy = (1 / (1 - Car.dSpeed)) * (this.vy / speed * (speed + Car.dSpeed));
   }
 
   slowDown () {
     const speed = Math.hypot(this.vx, this.vy);
-    this.vx = this.vx / speed * (speed - Car.dSpeed);
-    this.vy = this.vy / speed * (speed - Car.dSpeed);
+    this.vx = (1 - Car.dSpeed) * (this.vx / speed * (speed - Car.dSpeed));
+    this.vy = (1 - Car.dSpeed) * (this.vy / speed * (speed - Car.dSpeed));
   }
 
   takeAction (action) {
@@ -87,6 +93,18 @@ class Car {
       default:
         break;
     }
+  }
+  updateModelAction() {
+    const carState = this.getState();
+    const [action, prob] = this.model.predictActionProbs(carState);
+    console.log(`Action taken: ${action} with probability: ${prob}`);
+    this.takeAction(action);
+  } 
+  handleCollision() {
+    const speed = Math.hypot(this.vx, this.vy);
+    const slowdownFactor = Car.delta/speed;
+    this.vx = slowdownFactor * this.vx;
+    this.vy = slowdownFactor * this.vy;
   }
 
   draw(context) {
@@ -192,9 +210,7 @@ function draw() {
   cars.forEach(car => {
     car.draw(context);
     if (car.id == 0) {
-      const [action, prob] = car.model.predictActionProb([...car.rayLengths, car.x, car.y, car.vx, car.vy]);
-      console.log(`Action ${++actionsTaken}: ${action} with probability: ${prob}`);
-      car.takeAction(action);
+      car.updateModelAction();
     }
   });
 }

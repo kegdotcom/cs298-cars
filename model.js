@@ -45,16 +45,19 @@ export default class PolicyNetwork {
     const actionIdx = prediction.argMax(1).dataSync()[0];
     return PolicyNetwork.actions[actionIdx];
   }
-  
-  predictActionProb (carData) {
-    const inputData = tf.tensor2d([carData]);
-    const prediction = this.network.predict(inputData);
-    const actionIdx = prediction.argMax(1).dataSync()[0];
-    const action = PolicyNetwork.actions[actionIdx];
-    const actionProb = prediction.max().dataSync()[0];
-    return [action, actionProb];
+
+  calcReward(s) {
+    // calculate the reward from taking action a in state s
+    // find vx and vy
+    const velocity_xy = Math.sqrt(s[s.length - 2]**2 + s[s.length - 1]**2);
+    return velocity_xy;
   }
-  
+
+  calcLoss (prob, reward) {
+    // return the NEGATIVE log times the reward. 
+    return tf.neg(tf.mul(tf.log(prob), reward));
+  }
+
   predictActionProbs (carData) {
     const inputData = tf.tensor2d([carData]);
     const prediction = this.network.predict(inputData);
@@ -64,59 +67,39 @@ export default class PolicyNetwork {
     return [action, probs];
   }
   
-  calcReward (s, a) {
-    // calculate the reward from taking action a in state s
-    // find vx and vy
-    const velocity_xy = [s[s.length - 2],s[s.length - 1]];
-    const velocity = Math.sqrt(velocity_xy[0]**2 + velocity_xy[1]**2);
-    return velocity;
-  }
 
-  calcLoss (prob, reward) {
-    // return the NEGATIVE log times the reward. 
-    return -math.log(prob) * reward;
-  }
-
-  async updatePolicy (s, a, r, sPrime) {
-    // use policy and rewards and loss to update network weights in training
-    // SGD for pretraining. 
-    const optimizer = tf.train.sgd(0.01)
+  async updatePolicy(state, action, reward) {
+    const optimizer = tf.train.adam(0.001);  // Adam optimizer for policy gradient
 
     optimizer.minimize(() => {
-      const [action,prob] = this.predictActionProb(s);
-      const reward = this.calcReward(s,action);
-      // now calculate the loss
-      const loss = this.calcLoss(prob,reward);
+      const [predictedAction, prob] = this.predictActionProbs(state);
+      const calculatedReward = this.calcReward(state);
+      const loss = this.calcLoss(prob, calculatedReward);
       return loss;
-    })
-
+    });
   }
 
-  async trainAgent(env, policyNetwork){
-    // TODO: training loop
+  async trainAgent(env, policyNetwork) {
+    const batchSize = 32;
+    const optimizer = tf.train.adam(0.001);
+
+    for (let episode = 0; episode < 5000; episode++) {
+      const miniBatch = [];
+
+      for (let i = 0; i < batchSize; i++) {
+        miniBatch.push(env.sample());
+      }
+      
+      optimizer.minimize(() => {
+        let totalLoss = 0;
+        miniBatch.forEach(([state, action, reward, nextState]) => {
+          const [predictedAction, prob] = policyNetwork.predictActionProbs(state);
+          reward = this.calcReward(state);
+          const loss = this.calcLoss(prob, reward);
+          totalLoss += loss;
+        });
+        return totalLoss / batchSize;
+      });
+    }
   }
 }
-
-function testTime (iterations) {
-  const start = new Date();
-  const model = new PolicyNetwork();
-  for (let i = 0; i < iterations; i++) {
-    const [action, probs] = model.predictActionProbs([
-      Math.random() * 400,
-      Math.random() * 400,
-      Math.random() * 400,
-      Math.random() * 400,
-      Math.random() * 400,
-      Math.random() * 500,
-      Math.random() * 500,
-      Math.random() * 10,
-      Math.random() * 10,
-    ]);
-    // console.log(`Action ${i+1}:\t${action}\t${(Math.max(...probs) * 100).toFixed(4)}%`);
-  }
-  const end = new Date();
-  console.log(`${iterations} iterations completed in ${(end-start) / 1000} seconds`);
-}
-// if (process.argv.length > 2) {
-//   testTime(Number(process.argv[2]));
-// }
