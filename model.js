@@ -1,4 +1,4 @@
-// import tf from "@tensorflow/tfjs";
+import tf from "@tensorflow/tfjs";
 // uncomment above to run the time test in terminal
 // comment above to run graphics simulation
 
@@ -163,3 +163,27 @@ export default class PolicyNetwork {
   }
   */
 }
+
+// function testTime (iterations) {
+//   const start = new Date();
+//   const model = new PolicyNetwork();
+//   for (let i = 0; i < iterations; i++) {
+//     const [action, probs] = model.predictActionProbs([
+//       Math.random() * 400,
+//       Math.random() * 400,
+//       Math.random() * 400,
+//       Math.random() * 400,
+//       Math.random() * 400,
+//       Math.random() * 500,
+//       Math.random() * 500,
+//       Math.random() * 10,
+//       Math.random() * 10,
+//     ]);
+//     // console.log(`Action ${i+1}:\t${action}\t${(Math.max(...probs) * 100).toFixed(4)}%`);
+//   }
+//   const end = new Date();
+//   console.log(`${iterations} iterations completed in ${(end-start) / 1000} seconds`);
+// }
+// if (process.argv.length > 2) {
+//   testTime(Number(process.argv[2]));
+// }
