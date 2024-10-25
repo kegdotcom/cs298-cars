@@ -1,10 +1,10 @@
-import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
-import PolicyNetwork from "./model.js";
+import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "../math-functions.js";
+import PolicyNetwork from "../model.js";
 
 let obstacleCt = 0;
 const sqrt1_2 = 1 / Math.sqrt(2);
 class Wall {
-  constructor (x1, y1, x2, y2) {
+  constructor(x1, y1, x2, y2) {
     this.id = obstacleCt++;
     this.x1 = x1;
     this.y1 = y1;
@@ -31,9 +31,9 @@ class Car {
   static radius = 10;
   static dTheta = 1;
   static dSpeed = 0.1;
-  static epsilon = 0.1; 
+  static epsilon = 0.1;
   static delta = 0.5;
-  constructor (x, y, vx, vy) {
+  constructor(x, y, vx, vy) {
     this.id = obstacleCt++;
     this.x = x;
     this.y = y;
@@ -48,35 +48,45 @@ class Car {
     return [...this.rayLengths, this.x, this.y, this.vx, this.vy];
   }
 
-  turnLeft () {
+  turnLeft() {
     const theta = -Car.dTheta * Math.PI / 180;
     const prevVX = this.vx;
     const prevVY = this.vy;
-    this.vx = (1 - Car.epsilon) * (Math.cos(theta) * prevVX - Math.sin(theta) * prevVY);
-    this.vy = (1 - Car.epsilon) * (Math.sin(theta) * prevVX + Math.cos(theta) * prevVY);
+    this.vx = Math.cos(theta) * prevVX - Math.sin(theta) * prevVY;
+    this.vy = Math.sin(theta) * prevVX + Math.cos(theta) * prevVY;
+    this.slowDown(Car.epsilon);
   }
 
-  turnRight () {
+  turnRight() {
     const theta = Car.dTheta * Math.PI / 180;
     const prevVX = this.vx;
     const prevVY = this.vy;
-    this.vx = (1 - Car.epsilon) * (Math.cos(theta) * prevVX - Math.sin(theta) * prevVY);
-    this.vy = (1 - Car.epsilon) * (Math.sin(theta) * prevVX + Math.cos(theta) * prevVY);
+    this.vx = Math.cos(theta) * prevVX - Math.sin(theta) * prevVY;
+    this.vy = Math.sin(theta) * prevVX + Math.cos(theta) * prevVY;
+    this.slowDown(Car.epsilon);
   }
 
-  speedUp () {
+  speedUp(factor = 1) {
     const speed = Math.hypot(this.vx, this.vy);
-    this.vx = (1 / (1 - Car.dSpeed)) * (this.vx / speed * (speed + Car.dSpeed));
-    this.vy = (1 / (1 - Car.dSpeed)) * (this.vy / speed * (speed + Car.dSpeed));
+    const modifier = ((speed + Car.dSpeed) / speed)
+    this.vx *= modifier * factor;
+    this.vy *= modifier * factor;
+
+    //this.vx = (1 / (1 - Car.dSpeed)) * (this.vx / speed * (speed + Car.dSpeed));
+    //this.vy = (1 / (1 - Car.dSpeed)) * (this.vy / speed * (speed + Car.dSpeed));
   }
 
-  slowDown () {
+  slowDown(factor = 1) {
     const speed = Math.hypot(this.vx, this.vy);
-    this.vx = (1 - Car.dSpeed) * (this.vx / speed * (speed - Car.dSpeed));
-    this.vy = (1 - Car.dSpeed) * (this.vy / speed * (speed - Car.dSpeed));
+    const modifier = ((speed - Car.dSpeed) / speed)
+    this.vx *= modifier * factor;
+    this.vy *= modifier * factor;
+
+    // this.vx = (1 - Car.dSpeed) * (this.vx / speed * (speed - Car.dSpeed));
+    // this.vy = (1 - Car.dSpeed) * (this.vy / speed * (speed - Car.dSpeed));
   }
 
-  takeAction (action) {
+  takeAction(action) {
     switch (action) {
       case 'L':
         this.turnLeft();
@@ -99,10 +109,10 @@ class Car {
     const [action, prob] = this.model.predictActionProbs(carState);
     console.log(`Action taken: ${action} with probability: ${prob}`);
     this.takeAction(action);
-  } 
+  }
   handleCollision() {
     const speed = Math.hypot(this.vx, this.vy);
-    const slowdownFactor = Car.delta/speed;
+    const slowdownFactor = Car.delta / speed;
     this.vx = slowdownFactor * this.vx;
     this.vy = slowdownFactor * this.vy;
   }
@@ -118,16 +128,16 @@ class Car {
     // inner dot
     context.moveTo(0, 0);
     context.beginPath();
-    context.arc(0, 0, Car.radius/4, 0, 2*Math.PI);
+    context.arc(0, 0, Car.radius / 4, 0, 2 * Math.PI);
     context.closePath();
     context.fill();
     // outer circle
     context.moveTo(0, 0);
     context.beginPath();
-    context.arc(0, 0, Car.radius, 0, 2*Math.PI);
+    context.arc(0, 0, Car.radius, 0, 2 * Math.PI);
     context.closePath();
     context.stroke();
-    
+
     const rays = [
       [this.vy, -this.vx],
       [sqrt1_2 * (this.vx + this.vy), sqrt1_2 * (this.vy - this.vx)],
@@ -166,7 +176,7 @@ class Car {
         context.restore();
       }
     });
-    
+
 
     context.restore();
   }
@@ -180,7 +190,7 @@ let baseRotation = 0;
 const numCars = 4;
 const cars = [];
 for (let i = 0; i < numCars; i++) {
-  cars.push(new Car(getRandom(Car.radius, 500-Car.radius), getRandom(Car.radius, 500-Car.radius), getRandom(1, 10), getRandom(1, 10)));
+  cars.push(new Car(getRandom(Car.radius, 500 - Car.radius), getRandom(Car.radius, 500 - Car.radius), getRandom(1, 10), getRandom(1, 10)));
 }
 
 const numWalls = 2;
@@ -192,13 +202,13 @@ const walls = [
   new Wall(500, 500, 500, 0),
 ]
 
-  for (let i = 0; i < numWalls; i++) {
-    let lengthx = getRandom(100, 200)
-    let lengthy = getRandom(100, 200)
-    let startx = getRandom(0, 500-lengthx)
-    let starty = getRandom(0, 500-lengthy)
-    walls.push(new Wall(startx, starty, startx+lengthx, starty+lengthy));
-  }
+for (let i = 0; i < numWalls; i++) {
+  let lengthx = getRandom(100, 200)
+  let lengthy = getRandom(100, 200)
+  let startx = getRandom(0, 500 - lengthx)
+  let starty = getRandom(0, 500 - lengthy)
+  walls.push(new Wall(startx, starty, startx + lengthx, starty + lengthy));
+}
 
 let actionsTaken = 0;
 function draw() {
@@ -225,21 +235,21 @@ function main() {
       // get current car
       const car = cars[i];
       // get all obstacles except the current car
-      const allObstacles = [...walls, ...cars.slice(0, i), ...cars.slice(i+1)];
+      const allObstacles = [...walls, ...cars.slice(0, i), ...cars.slice(i + 1)];
       const obstacles = allObstacles.map(obstacle => ({
         obstacle: obstacle,
-        distance: Math.abs(  
+        distance: Math.abs(
           obstacle instanceof Car ?
             distance_to_circle(car.x, car.y, obstacle.x, obstacle.y, Car.radius) :
             distance_to_line(car.x, car.y, obstacle.x1, obstacle.y1, obstacle.x2, obstacle.y2)
         )
       }));
       // obstacles.sort((a, b) => a.distance - b.distance);
-      obstacles.forEach(({obstacle, distance}) => {
+      obstacles.forEach(({ obstacle, distance }) => {
         const collisionKey = `${car.id}-${obstacle.id}`;
         const cooldown = collisionCooldowns.get(collisionKey);
         if (cooldown > 0) {
-          collisionCooldowns.set(collisionKey, cooldown-1);
+          collisionCooldowns.set(collisionKey, cooldown - 1);
           return;
         };
         if (distance <= Car.radius) {
@@ -250,7 +260,7 @@ function main() {
           if (obstacle instanceof Car) {
             [newVx, newVy] = reflect(car.vx, car.vy, car.x - obstacle.x, car.y - obstacle.y);
             [obVx, obVy] = reflect(obstacle.vx, obstacle.vy, obstacle.x - car.x, obstacle.y - car.y);
-            const overlap = Car.radius - distance/2;
+            const overlap = Car.radius - distance / 2;
             const theta = Math.atan2(car.y - obstacle.y, car.x - obstacle.x);
             car.x += overlap * Math.cos(theta);
             car.y += overlap * Math.sin(theta);
@@ -265,8 +275,8 @@ function main() {
           car.vy = newVy;
         }
       });
-      car.x = Math.min(Math.max(car.x + car.vx * dTime * baseSpeed, Car.radius), 500-Car.radius);
-      car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500-Car.radius);
+      car.x = Math.min(Math.max(car.x + car.vx * dTime * baseSpeed, Car.radius), 500 - Car.radius);
+      car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500 - Car.radius);
     }
     draw();
     window.requestAnimationFrame(loop);
@@ -288,17 +298,17 @@ document.addEventListener("keydown", e => {
     case "ArrowRight":
       baseRotation += 0.1;
       break;
-    }
-  })
-  
-  document.getElementById("play-pause").onclick = (e) => {
-    baseSpeed = baseSpeed === 0 ? 1 : 0;
-    e.target.innerText = baseSpeed === 0 ? "Play" : "Pause";
   }
-  
-  document.getElementById("speed").onchange = (e) => {
-    baseSpeed = Number(e.target.value);
-  }
+})
+
+document.getElementById("play-pause").onclick = (e) => {
+  baseSpeed = baseSpeed === 0 ? 1 : 0;
+  e.target.innerText = baseSpeed === 0 ? "Play" : "Pause";
+}
+
+document.getElementById("speed").onchange = (e) => {
+  baseSpeed = Number(e.target.value);
+}
 function getRandom(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
