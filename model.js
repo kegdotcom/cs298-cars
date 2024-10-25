@@ -1,30 +1,30 @@
-import tf from "@tensorflow/tfjs";
+// import tf from "@tensorflow/tfjs";
 // uncomment above to run the time test in terminal
 // comment above to run graphics simulation
 
 export default class PolicyNetwork {
-  static batchSize = 32;
-  static discountFactor = 0.1;
-  static learningRate = 0.01
 
   static actions = ['L', 'R', 'U', 'D'];
 
   constructor(stateSize = 9, actionSize = PolicyNetwork.actions.length) {
-    this.stateSize = stateSize;
-    this.actionSize = actionSize;
-    this.network = this.createNetwork(this.stateSize, this.actionSize);
-    this.optimizer = tf.train.adam(PolicyNetwork.learningRate);
-    this.miniBatches = [];
+    this.STATE_SIZE = stateSize;
+    this.ACTION_SIZE = actionSize;
+    this.BATCH_SIZE = 32;
+    this.DISCOUNT_FACTOR = tf.scalar(0.1);
+    this.LEARNING_RATE = 0.01
+    this.network = this.createNetwork();
+    this.optimizer = tf.train.adam(this.LEARNING_RATE);
+    // this.miniBatches = [];
     this.batch = [];
-    this.prevPos = null;
+    this.prevState = tf.variable(tf.tensor2d(new Array(this.STATE_SIZE).fill(NaN), [1, this.STATE_SIZE]), true);
   }
 
-  createNetwork(stateSize, actionSize) {
+  createNetwork() {
     const model = tf.sequential();
 
     model.add(tf.layers.dense({
       units: 32,
-      inputShape: [stateSize],
+      inputShape: [this.STATE_SIZE],
       activation: "relu",
     }));
 
@@ -34,7 +34,7 @@ export default class PolicyNetwork {
     }));
 
     model.add(tf.layers.dense({
-      units: actionSize,
+      units: this.ACTION_SIZE,
       activation: "softmax",
     }));
 
@@ -42,65 +42,62 @@ export default class PolicyNetwork {
   }
 
   // Todo: Justin
-  predictProbs(carData) {
-    const inputData = tf.tensor2d([carData], [1, 9]);
-    const prediction = this.network.predict(inputData)
-    return prediction.dataSync();
+  predictActionProbs(state) {
+    return this.network.predict(state);
   }
 
-  predictAction(carData) {
-    const inputData = tf.tensor2d([carData], [1, 9]);
-    const prediction = this.network.predict(inputData);
-    const actionIdx = prediction.argMax(1).dataSync()[0];
-    return PolicyNetwork.actions[actionIdx];
-  }
+  // predictAction(state) {
+  //   const prediction = this.network.predict(state.reshape(1, state.size));
+  //   const actionIdx = prediction.argMax(1).dataSync()[0];
+  //   return actionIdx;
+  // }
 
-  calcReward(s) {
+  calcReward(state) {
     // calculate the reward from taking action a in state s
     // find vx and vy
     // [d1, d2, d3, d4, d5, x, y, vx, vy];
-    let reward;
-    const newPos = [s[s.length - 4], s[s.length - 3]];
-    if (this.prevPos === null) {
-      reward = Math.hypot(s[s.length - 2], s[s.length - 1]);
-    } else {
-      reward = Math.hypot(newPos[1] - this.prevPos[1], newPos[0] - this.prevPos[0]);
-    }
-    this.prevPos = newPos;
+    const reward = this.prevState.size == 0 ?
+      tf.add(state.gather([state.size - 2]).square(), state.gather([state.size - 1]).square()).sqrt()
+      :
+      tf.add(
+        tf.sub(state.gather([state.size - 4]), this.prevState.gather([this.prevState.size - 4])).square(),
+        tf.sub(state.gather([state.size - 3]), this.prevState.gather([this.prevState.size - 3])).square()
+      ).sqrt();
+
+    this.prevState.assign(state);
     return reward;
   }
 
-  calcLoss(batch) {
-    const Q = this.getBatchReward(batch);
-    const logPr = batch.reduce((acc, tuple) => {
-      acc += Math.log(tuple.actionProb)
-    }, 0)
-    const ElogPr = logPr / batch.length;
-    const loss = Q * ElogPr;
-    return -loss;
-  }
-
-  predictActionProb(carData) {
-    const inputData = tf.tensor2d([carData], [1, 9]);
-    const prediction = this.network.predict(inputData);
-    const probs = prediction.dataSync();
-    const actionIdx = prediction.argMax(1).dataSync()[0];
-    return [PolicyNetwork.actions[actionIdx], probs[actionIdx]];
-  }
+  // calcLoss(batch) {
+  //   const Q = this.getBatchReward(batch);
+  //   const actionProbs = batch.map(tuple => tuple.actionProbs)
+  //   const logPr = batch.reduce((acc, tuple) => {
+  //     acc += Math.log(tuple.actionProb)
+  //   }, 0)
+  //   const ElogPr = logPr / batch.length;
+  //   const loss = Q * ElogPr;
+  //   return -loss;
+  // }
 
   // Q() for minibatch
   getBatchReward(batch) {
-    let q = 0;
-    batch.forEach((tuple, idx) => {
-      q += (PolicyNetwork.discountFactor ** idx) * tuple.reward;
-    })
-    return q;
+    const rewards = tf.concat(batch.map(t => t.reward), 0).reverse();
+    const discounts = tf.pow(this.DISCOUNT_FACTOR, tf.range(0, this.BATCH_SIZE));
+    const batchRewards = rewards.mul(discounts).cumsum().reverse();
+    return batchRewards;
   }
 
-  async updatePolicy(batch) {
-    optimizer.minimize(() => {
-      const loss = this.calcLoss(batch);
-      return loss;
+  updatePolicy(batch) {
+    this.optimizer.minimize(() => {
+      // Extract states and actions from the batch
+      const states = tf.stack(batch.map(tuple => tuple.state));
+      const actions = tf.concat(batch.map(tuple => tuple.action));
+      const actionProbsTensor = tf.stack(batch.map(tuple => tuple.actionProbs));
+      const logProbs = actionProbsTensor.mul(tf.oneHot(actions, this.ACTION_SIZE)).sum(-1).log();
+      const rewards = this.getBatchReward(batch);
+
+      const loss = rewards.mul(logProbs).mean();
+      return tf.neg(loss);
     });
   }
 
@@ -117,23 +114,26 @@ export default class PolicyNetwork {
     // at the end, return the action sampled from current state (s) so that the car can take it
     //  car calls train() here so that each Si gets one train loop, so train gives car back the action
 
+    const stateTensor = tf.tensor2d([state], [1, this.STATE_SIZE]);
     if (this.batch.length > 0) {
-      this.batch[this.batch.length - 1].reward = this.calcReward(state);
+      this.batch[this.batch.length - 1].reward = this.calcReward(stateTensor);
     }
-    if (this.batch.length == PolicyNetwork.batchSize) {
+    if (this.batch.length === this.BATCH_SIZE) {
       this.updatePolicy(this.batch);
       this.batch = [];
     }
 
-    const [action, p] = this.predictActionProb(state);
+    const actionProbs = this.predictActionProbs(stateTensor);
+    const actionIdx = actionProbs.argMax(1);
+
     this.batch.push({
-      state: state,
-      action: action,
-      actionProb: p,
+      state: stateTensor,
+      action: actionIdx,
+      actionProbs: actionProbs,
       reward: null,
     });
     // sample an action
-    return action;
+    return PolicyNetwork.actions[actionIdx.dataSync()[0]];
   }
 
 
