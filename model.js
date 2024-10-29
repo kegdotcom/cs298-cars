@@ -6,17 +6,17 @@ export default class PolicyNetwork {
 
   static actions = ['L', 'R', 'U', 'D'];
 
-  constructor(stateSize = 9, actionSize = PolicyNetwork.actions.length) {
+  constructor(carId, stateSize = 9, actionSize = PolicyNetwork.actions.length) {
     this.STATE_SIZE = stateSize;
     this.ACTION_SIZE = actionSize;
     this.BATCH_SIZE = 32;
-    this.DISCOUNT_FACTOR = tf.scalar(0.1);
-    this.LEARNING_RATE = 0.01
+    this.DISCOUNT_FACTOR = tf.scalar(0.1, "float32");
+    this.LEARNING_RATE = tf.scalar(0.01, "float32");
     this.network = this.createNetwork();
     this.optimizer = tf.train.adam(this.LEARNING_RATE);
     // this.miniBatches = [];
     this.batch = [];
-    this.prevState = tf.variable(tf.tensor2d(new Array(this.STATE_SIZE).fill(NaN), [1, this.STATE_SIZE]), true);
+    this.prevState = tf.variable(tf.zeros([1, this.STATE_SIZE]), false, `prevState-${carId}`, "float32");
   }
 
   createNetwork() {
@@ -56,14 +56,12 @@ export default class PolicyNetwork {
     // calculate the reward from taking action a in state s
     // find vx and vy
     // [d1, d2, d3, d4, d5, x, y, vx, vy];
-    const reward = this.prevState.size == 0 ?
-      tf.add(state.gather([state.size - 2]).square(), state.gather([state.size - 1]).square()).sqrt()
-      :
+    const reward = this.prevState.notEqual(0).sum().equal(0) ?
+      tf.add(state.gather(state.size - 2, 1).square(), state.gather(state.size - 1, 1).square()).sqrt() :
       tf.add(
-        tf.sub(state.gather([state.size - 4]), this.prevState.gather([this.prevState.size - 4])).square(),
-        tf.sub(state.gather([state.size - 3]), this.prevState.gather([this.prevState.size - 3])).square()
+        tf.sub(state.gather(state.size - 4, 1), this.prevState.gather(this.prevState.size - 4, 1)).square(),
+        tf.sub(state.gather(state.size - 3, 1), this.prevState.gather(this.prevState.size - 3, 1)).square()
       ).sqrt();
-
     this.prevState.assign(state);
     return reward;
   }
@@ -90,7 +88,7 @@ export default class PolicyNetwork {
   updatePolicy(batch) {
     this.optimizer.minimize(() => {
       // Extract states and actions from the batch
-      const states = tf.stack(batch.map(tuple => tuple.state));
+      // const states = tf.stack(batch.map(tuple => tuple.state));
       const actions = tf.concat(batch.map(tuple => tuple.action));
       const actionProbsTensor = tf.stack(batch.map(tuple => tuple.actionProbs));
       const logProbs = actionProbsTensor.mul(tf.oneHot(actions, this.ACTION_SIZE)).sum(-1).log();
@@ -114,26 +112,26 @@ export default class PolicyNetwork {
     // at the end, return the action sampled from current state (s) so that the car can take it
     //  car calls train() here so that each Si gets one train loop, so train gives car back the action
 
-    const stateTensor = tf.tensor2d([state], [1, this.STATE_SIZE]);
+    // const stateTensor = tf.tensor2d([state], [1, this.STATE_SIZE]);
     if (this.batch.length > 0) {
-      this.batch[this.batch.length - 1].reward = this.calcReward(stateTensor);
+      this.batch[this.batch.length - 1].reward = this.calcReward(state);
     }
     if (this.batch.length === this.BATCH_SIZE) {
       this.updatePolicy(this.batch);
       this.batch = [];
     }
 
-    const actionProbs = this.predictActionProbs(stateTensor);
+    const actionProbs = this.predictActionProbs(state);
     const actionIdx = actionProbs.argMax(1);
 
     this.batch.push({
-      state: stateTensor,
+      state: state,
       action: actionIdx,
       actionProbs: actionProbs,
       reward: null,
     });
     // sample an action
-    return PolicyNetwork.actions[actionIdx.dataSync()[0]];
+    return actionIdx;
   }
 
 

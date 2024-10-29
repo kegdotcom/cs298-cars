@@ -1,3 +1,4 @@
+// import { tensor1d } from "@tensorflow/tfjs";
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
 import PolicyNetwork from "./model.js";
 
@@ -41,11 +42,11 @@ class Car {
     this.vy = vy;
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
-    this.model = new PolicyNetwork();
+    this.model = new PolicyNetwork(this.id);
   }
 
   getState() {
-    return [...this.rayLengths, this.x, this.y, this.vx, this.vy];
+    return tf.tensor2d([...this.rayLengths, this.x, this.y, this.vx, this.vy], [1, this.model.STATE_SIZE]);
   }
 
   turnLeft() {
@@ -86,17 +87,25 @@ class Car {
     // this.vy = (1 - Car.dSpeed) * (this.vy / speed * (speed - Car.dSpeed));
   }
 
-  takeAction(action) {
+  takeAction(actionInput) {
+    const action = actionInput instanceof tf.tensor1d ?
+      actionInput.dataSync()[0] :
+      actionInput;
+
     switch (action) {
+      case 0:
       case 'L':
         this.turnLeft();
         break;
+      case 1:
       case 'R':
         this.turnRight();
         break;
+      case 2:
       case 'U':
         this.speedUp();
         break;
+      case 3:
       case 'D':
         this.slowDown();
         break;
@@ -205,7 +214,6 @@ for (let i = 0; i < numWalls; i++) {
   walls.push(new Wall(startx, starty, startx + lengthx, starty + lengthy));
 }
 
-let actionsTaken = 0;
 function draw() {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
@@ -216,7 +224,8 @@ function draw() {
   cars.forEach(car => {
     car.draw(context);
     if (car.id == 0) {
-      const action = car.model.train(car.getState());
+      const state = car.getState();
+      const action = car.model.train(state);
       car.takeAction(action);
     }
   });
