@@ -10,6 +10,7 @@ class Wall {
     this.y1 = y1;
     this.x2 = x2;
     this.y2 = y2;
+    this.isCar = false;
   }
 
   getModelInput() {
@@ -31,7 +32,7 @@ class Car {
   static radius = 10;
   static dTheta = 1;
   static dSpeed = 0.1;
-  static epsilon = 0.1;
+  static epsilon = 0.75;
   static delta = 0.5;
   constructor(x, y, vx, vy) {
     this.id = obstacleCt++;
@@ -42,6 +43,7 @@ class Car {
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
     this.model = new PolicyNetwork();
+    this.isCar = true;
   }
 
   getState() {
@@ -78,9 +80,8 @@ class Car {
 
   slowDown(factor = 1) {
     const speed = Math.hypot(this.vx, this.vy);
-    const modifier = ((speed - Car.dSpeed) / speed)
-    this.vx *= modifier * factor;
-    this.vy *= modifier * factor;
+    this.vx *= factor;
+    this.vy *= factor;
 
     // this.vx = (1 - Car.dSpeed) * (this.vx / speed * (speed - Car.dSpeed));
     // this.vy = (1 - Car.dSpeed) * (this.vy / speed * (speed - Car.dSpeed));
@@ -105,12 +106,6 @@ class Car {
     }
   }
 
-  handleCollision() {
-    const speed = Math.hypot(this.vx, this.vy);
-    const slowdownFactor = Car.delta / speed;
-    this.vx = slowdownFactor * this.vx;
-    this.vy = slowdownFactor * this.vy;
-  }
 
   draw(context) {
     context.save();
@@ -223,11 +218,20 @@ function draw() {
 }
 
 function main() {
+
   const collisionCooldowns = new Map();
-  let lastTime;
+  const realWorldCooldownTime = 0.5; // wanted cooldown time in seconds 
+  let frameRate = 60; // default frame rate
+  let lastFrameTime = performance.now()
+
   function loop(timestamp) {
-    const dTime = lastTime ? (timestamp - lastTime) / 1000 : 0;
-    lastTime = timestamp;
+    const dTime = lastFrameTime ? (timestamp - lastFrameTime) / 1000 : 0;
+    frameRate = 1 / dTime; // Update frame rate dynamically
+    lastFrameTime = timestamp;
+
+    // Calculate the cooldown period in frames
+    const cooldownInFrames = Math.round(realWorldCooldownTime*frameRate);
+
     for (let i = 0; i < cars.length; i++) {
       // get current car
       const car = cars[i];
@@ -244,14 +248,14 @@ function main() {
       // obstacles.sort((a, b) => a.distance - b.distance);
       obstacles.forEach(({ obstacle, distance }) => {
         const collisionKey = `${car.id}-${obstacle.id}`;
-        const cooldown = collisionCooldowns.get(collisionKey);
+        const cooldown = collisionCooldowns.get(collisionKey) || 0;
         if (cooldown > 0) {
           collisionCooldowns.set(collisionKey, cooldown - 1);
           return;
         };
         if (distance <= Car.radius) {
           console.log("bam");
-          collisionCooldowns.set(collisionKey, 3);
+          collisionCooldowns.set(collisionKey, cooldownInFrames);
           let newVx, newVy;
           let obVx, obVy;
           if (obstacle instanceof Car) {
@@ -265,13 +269,21 @@ function main() {
             obstacle.y -= overlap * Math.sin(theta);
             obstacle.vx = obVx;
             obstacle.vy = obVy;
+
+            car.vx = newVx;
+            car.vy = newVy;
+            obstacle.vx = obVx * Car.delta;
+            obstacle.vy = obVy * Car.delta;
           } else {
             [newVx, newVy] = reflect(car.vx, car.vy, (obstacle.y1 - obstacle.y2), (obstacle.x2 - obstacle.x1));
+            car.vx = newVx;
+            car.vy = newVy;
           }
-          car.vx = newVx;
-          car.vy = newVy;
+          car.vx = newVx * Car.delta;
+          car.vy = newVy * Car.delta;
         }
       });
+      // Update car position based on adjusted velocities
       car.x = Math.min(Math.max(car.x + car.vx * dTime * baseSpeed, Car.radius), 500 - Car.radius);
       car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500 - Car.radius);
     }
