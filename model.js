@@ -119,7 +119,7 @@ export default class PolicyNetwork {
       this.batch[this.batch.length - 1].reward = this.calcReward(stateTensor);
     }
     if (this.batch.length === this.BATCH_SIZE) {
-      this.updatePolicy(this.batch);
+      // this.updatePolicy(this.batch);
       this.batch = [];
     }
 

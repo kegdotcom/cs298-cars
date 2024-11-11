@@ -266,7 +266,22 @@ function main() {
             obstacle.vx = obVx;
             obstacle.vy = obVy;
           } else {
-            [newVx, newVy] = reflect(car.vx, car.vy, (obstacle.y1 - obstacle.y2), (obstacle.x2 - obstacle.x1));
+            const distP1 = Math.hypot(car.x - obstacle.x1, car.y - obstacle.y1);
+            const distP2 = Math.hypot(car.x - obstacle.x2, car.y - obstacle.y2);
+            const lowDist = Math.min(distP1, distP2);
+            const hitEnd = lowDist < Car.radius;
+            if (hitEnd) {
+              const [nx, ny] = distP2 < distP1 ?
+                [car.x - obstacle.x2, car.y - obstacle.y2] :
+                [car.x - obstacle.x1, car.y - obstacle.y1];
+              [newVx, newVy] = reflect(car.vx, car.vy, nx, ny);
+              const overlap = Car.radius - lowDist;
+              const theta = Math.atan2(ny, nx);
+              car.x += overlap * Math.cos(theta);
+              car.y += overlap * Math.sin(theta);
+            } else {
+              [newVx, newVy] = reflect(car.vx, car.vy, (obstacle.y1 - obstacle.y2), (obstacle.x2 - obstacle.x1));
+            }
           }
           car.vx = newVx;
           car.vy = newVy;

@@ -1,33 +1,33 @@
-// export function distance_to_line (cx, cy, lx0, ly0, lx1, ly1, r = 0) {
-//     const lineV = [lx1 - lx0, ly1 - ly0];
-//     const circV = [cx - lx0, cy - ly0];
-
-//     const t = (circV[0]*lineV[0] + circV[1]*lineV[1])/(lineV[0]*lineV[0] + lineV[1]*lineV[1]);
-//     return t > 0 && t < 1 ?
-//       (circV[1]*lineV[0] - circV[0]*lineV[1]) / Math.hypot(...lineV) :
-//       Number.MAX_SAFE_INTEGER;
-// }
-
 export function distance_to_line(cx, cy, lx0, ly0, lx1, ly1, r = 0) {
   const lineV = [lx1 - lx0, ly1 - ly0];
   const circV = [cx - lx0, cy - ly0];
 
-  const lineLenSq = lineV[0] * lineV[0] + lineV[1] * lineV[1];  // Length of line squared
-  const t = (circV[0] * lineV[0] + circV[1] * lineV[1]) / lineLenSq;
-
-  let dist;
-  if (t > 0 && t < 1) {
-    // Closest point is within the line segment
-    dist = Math.abs(circV[1] * lineV[0] - circV[0] * lineV[1]) / Math.hypot(...lineV);
-  } else {
-    // Closest point is one of the endpoints
-    const distToStart = Math.hypot(cx - lx0, cy - ly0);  // Distance to first endpoint
-    const distToEnd = Math.hypot(cx - lx1, cy - ly1);    // Distance to second endpoint
-    dist = Math.min(distToStart, distToEnd);             // Choose the closest endpoint distance
-  }
-
-  return dist <= r ? dist : Number.MAX_SAFE_INTEGER;
+  const t = (circV[0] * lineV[0] + circV[1] * lineV[1]) / (lineV[0] * lineV[0] + lineV[1] * lineV[1]);
+  return t > 0 && t < 1 ?
+    (circV[1] * lineV[0] - circV[0] * lineV[1]) / Math.hypot(...lineV) :
+    Number.MAX_SAFE_INTEGER;
 }
+
+// export function distance_to_line(cx, cy, lx0, ly0, lx1, ly1, r = 0) {
+//   const lineV = [lx1 - lx0, ly1 - ly0];
+//   const circV = [cx - lx0, cy - ly0];
+
+//   const lineLenSq = lineV[0] * lineV[0] + lineV[1] * lineV[1];  // Length of line squared
+//   const t = (circV[0] * lineV[0] + circV[1] * lineV[1]) / lineLenSq;
+
+//   let dist;
+//   if (t > 0 && t < 1) {
+//     // Closest point is within the line segment
+//     dist = Math.abs(circV[1] * lineV[0] - circV[0] * lineV[1]) / Math.hypot(...lineV);
+//   } else {
+//     // Closest point is one of the endpoints
+//     const distToStart = Math.hypot(cx - lx0, cy - ly0);  // Distance to first endpoint
+//     const distToEnd = Math.hypot(cx - lx1, cy - ly1);    // Distance to second endpoint
+//     dist = Math.min(distToStart, distToEnd);             // Choose the closest endpoint distance
+//   }
+
+//   return dist <= r ? dist : Number.MAX_SAFE_INTEGER;
+// }
 
 export function distance_to_circle(x, y, cx, cy, r = 0) {
   return Math.hypot(x - cx, y - cy) - (2 * r);
