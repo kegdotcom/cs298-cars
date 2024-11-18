@@ -1,6 +1,6 @@
 // import { tensor1d } from "@tensorflow/tfjs";
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
-import PolicyNetwork from "./model.js";
+import PolicyNetwork from "./policynet.js";
 
 let obstacleCt = 0;
 const sqrt1_2 = 1 / Math.sqrt(2);
@@ -43,6 +43,15 @@ class Car {
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
     this.model = new PolicyNetwork(this.id);
+  }
+
+  runNetworkFrame(output = false) {
+    const state = this.getState();
+    const action = this.model.runFrame(state, true);
+    if (output) {
+      console.log(PolicyNetwork.actions[action.dataSync()[0]]);
+    }
+    this.takeAction(action);
   }
 
   getState() {
@@ -224,9 +233,7 @@ function draw() {
   cars.forEach(car => {
     car.draw(context);
     if (car.id == 0) {
-      const state = car.getState();
-      const action = car.model.train(state);
-      car.takeAction(action);
+      car.runNetworkFrame(true);
     }
   });
 }

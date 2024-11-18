@@ -9,22 +9,44 @@ export default class PolicyNetwork {
   constructor(carId, stateSize = 9, actionSize = PolicyNetwork.actions.length) {
     this.STATE_SIZE = stateSize;
     this.ACTION_SIZE = actionSize;
+
     this.BATCH_SIZE = 32;
     this.DISCOUNT_FACTOR = tf.scalar(0.1, "float32");
     this.LEARNING_RATE = tf.scalar(0.01, "float32");
-    this.network = this.createNetwork();
+
+    this.states = [];
+    this.actions = [];
+    this.rewards = [];
+
     this.optimizer = tf.train.adam(this.LEARNING_RATE);
-    // this.miniBatches = [];
-    this.batch = [];
-    this.prevState = tf.variable(tf.zeros([1, this.STATE_SIZE]), false, `prevState-${carId}`, "float32");
+    this.createPolicyNetwork(this.STATE_SIZE, this.ACTION_SIZE);
   }
 
-  createNetwork() {
+  createPolicyNetwork(input, output) {
+    this.network = tf.sequential();
+    this.network.add(tf.layers.dense({
+      units: 32,
+      inputShape: [input],
+      activation: "relu",
+    }));
+
+    this.network.add(tf.layers.dense({
+      units: 16,
+      activation: "relu",
+    }));
+
+    this.network.add(tf.layers.dense({
+      units: output,
+      activation: "softmax",
+    }));
+  }
+
+  createNetwork(input, output) {
     const model = tf.sequential();
 
     model.add(tf.layers.dense({
       units: 32,
-      inputShape: [this.STATE_SIZE],
+      inputShape: [input],
       activation: "relu",
     }));
 
@@ -34,11 +56,41 @@ export default class PolicyNetwork {
     }));
 
     model.add(tf.layers.dense({
-      units: this.ACTION_SIZE,
+      units: output,
       activation: "softmax",
     }));
 
     return model;
+  }
+
+  defaultPolicy(state) {
+    const [d1, d2, d3, d4, d5, x, y, vx, vy] = state;
+    const leftDist = (d1 + d2) / 2;
+    const frontDist = (d2 + d3 + d4) / 3;
+    const rightDist = (d4 + d5) / 2;
+    const speed = Math.hypot(vx, vy);
+    let action;
+    if (5 * speed > frontDist) {
+      // slow down
+      action = 'D';
+    } else if (10 * speed < frontDist) {
+      // speed up
+      action = 'U';
+    } else {
+      if (leftDist > rightDist) {
+        // turn left
+        action = 'L';
+      } else {
+        // turn right
+        action = 'R';
+      }
+    }
+    return PolicyNetwork.actions.indexOf(action);
+  }
+
+  trainOnPolicy(states, policy = this.defaultPolicy) {
+    const labels = states.map(policy);
+    this.network.fit(states, labels);
   }
 
   // Todo: Justin
@@ -92,11 +144,21 @@ export default class PolicyNetwork {
       const actions = tf.concat(batch.map(tuple => tuple.action));
       const actionProbsTensor = tf.stack(batch.map(tuple => tuple.actionProbs));
       const logProbs = actionProbsTensor.mul(tf.oneHot(actions, this.ACTION_SIZE)).sum(-1).log();
-      const rewards = this.getBatchReward(batch);
 
-      const loss = rewards.mul(logProbs).mean();
+      // getBatchReward function
+      const rewards = tf.concat(batch.map(t => t.reward), 0).reverse();
+      const discounts = tf.pow(this.DISCOUNT_FACTOR, tf.range(0, this.BATCH_SIZE));
+      const batchRewards = rewards.mul(discounts).cumsum().reverse();
+
+      const loss = batchRewards.mul(logProbs).mean();
       return tf.neg(loss);
     });
+  }
+
+  async reinforce(states, logits, actions) {
+    for (let i = 0; i < states.length; i++) {
+
+    }
   }
 
   train(state) {
@@ -134,6 +196,17 @@ export default class PolicyNetwork {
     return actionIdx;
   }
 
+  predict(stateTensor) {
+    return tf.tidy(() => {
+      const logits = this.network.predict(stateTensor);
+      const action = logits.argMax(1);
+      return [logits, action];
+    });
+  }
+
+  async trainOnBatch(batch) {
+
+  }
 
   /*
   async trainAgent(env, policyNetwork) {
