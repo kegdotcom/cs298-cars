@@ -1,4 +1,3 @@
-// import { tensor1d } from "@tensorflow/tfjs";
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg } from "./math-functions.js";
 import PolicyNetwork from "./policynet.js";
 
@@ -11,6 +10,7 @@ class Wall {
     this.y1 = y1;
     this.x2 = x2;
     this.y2 = y2;
+    this.isCar = false;
   }
 
   getModelInput() {
@@ -32,7 +32,7 @@ class Car {
   static radius = 10;
   static dTheta = 1;
   static dSpeed = 0.1;
-  static epsilon = 0.1;
+  static epsilon = 0.75;
   static delta = 0.5;
   constructor(x, y, vx, vy) {
     this.id = obstacleCt++;
@@ -42,20 +42,26 @@ class Car {
     this.vy = vy;
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
-    this.model = new PolicyNetwork(this.id);
-  }
-
-  runNetworkFrame(output = false) {
-    const state = this.getState();
-    const action = this.model.runFrame(state, true);
-    if (output) {
-      console.log(PolicyNetwork.actions[action.dataSync()[0]]);
-    }
-    this.takeAction(action);
+    this.model = new PolicyNetwork();
+    this.isCar = true;
   }
 
   getState() {
-    return tf.tensor2d([...this.rayLengths, this.x, this.y, this.vx, this.vy], [1, this.model.STATE_SIZE]);
+    return [...this.rayLengths, this.x, this.y, this.vx, this.vy];
+  }
+
+  runNetworkFrame(train = false) {
+    const stateTensor = tf.tensor2d(this.getState(), [1, this.model.STATE_SIZE]);
+    const actionTensor = this.model.runFrame(stateTensor, train);
+    const action = actionTensor.dataSync()[0];
+    this.takeAction(action, train);
+  }
+
+  runPretrainFrame() {
+    const stateTensor = tf.tensor2d(this.getState(), [1, this.model.STATE_SIZE]);
+    const labels = this.model.trainOnPolicy([stateTensor]);
+    const action = labels[0].dataSync();
+    this.takeAction(action);
   }
 
   turnLeft() {
@@ -88,19 +94,17 @@ class Car {
 
   slowDown(factor = 1) {
     const speed = Math.hypot(this.vx, this.vy);
-    const modifier = ((speed - Car.dSpeed) / speed)
-    this.vx *= modifier * factor;
-    this.vy *= modifier * factor;
+    this.vx *= factor;
+    this.vy *= factor;
 
     // this.vx = (1 - Car.dSpeed) * (this.vx / speed * (speed - Car.dSpeed));
     // this.vy = (1 - Car.dSpeed) * (this.vy / speed * (speed - Car.dSpeed));
   }
 
-  takeAction(actionInput) {
-    const action = actionInput instanceof tf.tensor1d ?
-      actionInput.dataSync()[0] :
-      actionInput;
-
+  takeAction(action, log = false) {
+    if (log) {
+      console.log(`Car ${this.id} took action ${action}`);
+    }
     switch (action) {
       case 0:
       case 'L':
@@ -123,12 +127,6 @@ class Car {
     }
   }
 
-  handleCollision() {
-    const speed = Math.hypot(this.vx, this.vy);
-    const slowdownFactor = Car.delta / speed;
-    this.vx = slowdownFactor * this.vx;
-    this.vy = slowdownFactor * this.vy;
-  }
 
   draw(context) {
     context.save();
@@ -190,7 +188,6 @@ class Car {
       }
     });
 
-
     context.restore();
   }
 }
@@ -223,6 +220,7 @@ for (let i = 0; i < numWalls; i++) {
   walls.push(new Wall(startx, starty, startx + lengthx, starty + lengthy));
 }
 
+let actionsTaken = 0;
 function draw() {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
@@ -234,16 +232,30 @@ function draw() {
     car.draw(context);
     if (car.id == 0) {
       car.runNetworkFrame(true);
+      // if (actionsTaken < 1e4) {
+      //   car.runPretrainFrame();
+      // } else {
+      //   car.runNetworkFrame();
+      // }
     }
   });
 }
 
 function main() {
+
   const collisionCooldowns = new Map();
-  let lastTime;
+  const realWorldCooldownTime = 0.5; // wanted cooldown time in seconds 
+  let frameRate = 60; // default frame rate
+  let lastFrameTime = performance.now()
+
   function loop(timestamp) {
-    const dTime = lastTime ? (timestamp - lastTime) / 1000 : 0;
-    lastTime = timestamp;
+    const dTime = lastFrameTime ? (timestamp - lastFrameTime) / 1000 : 0;
+    frameRate = 1 / dTime; // Update frame rate dynamically
+    lastFrameTime = timestamp;
+
+    // Calculate the cooldown period in frames
+    const cooldownInFrames = Math.round(realWorldCooldownTime * frameRate);
+
     for (let i = 0; i < cars.length; i++) {
       // get current car
       const car = cars[i];
@@ -260,14 +272,14 @@ function main() {
       // obstacles.sort((a, b) => a.distance - b.distance);
       obstacles.forEach(({ obstacle, distance }) => {
         const collisionKey = `${car.id}-${obstacle.id}`;
-        const cooldown = collisionCooldowns.get(collisionKey);
+        const cooldown = collisionCooldowns.get(collisionKey) || 0;
         if (cooldown > 0) {
           collisionCooldowns.set(collisionKey, cooldown - 1);
           return;
         };
         if (distance <= Car.radius) {
           console.log("bam");
-          collisionCooldowns.set(collisionKey, 3);
+          collisionCooldowns.set(collisionKey, cooldownInFrames);
           let newVx, newVy;
           let obVx, obVy;
           if (obstacle instanceof Car) {
@@ -281,13 +293,21 @@ function main() {
             obstacle.y -= overlap * Math.sin(theta);
             obstacle.vx = obVx;
             obstacle.vy = obVy;
+
+            // car.vx = newVx;
+            // car.vy = newVy;
+            obstacle.vx = obVx * Car.delta;
+            obstacle.vy = obVy * Car.delta;
           } else {
             [newVx, newVy] = reflect(car.vx, car.vy, (obstacle.y1 - obstacle.y2), (obstacle.x2 - obstacle.x1));
+            // car.vx = newVx;
+            // car.vy = newVy;
           }
-          car.vx = newVx;
-          car.vy = newVy;
+          car.vx = newVx * Car.delta;
+          car.vy = newVy * Car.delta;
         }
       });
+      // Update car position based on adjusted velocities
       car.x = Math.min(Math.max(car.x + car.vx * dTime * baseSpeed, Car.radius), 500 - Car.radius);
       car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500 - Car.radius);
     }
