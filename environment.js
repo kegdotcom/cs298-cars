@@ -60,7 +60,7 @@ class Car {
   runPretrainFrame() {
     const stateTensor = tf.tensor2d(this.getState(), [1, this.model.STATE_SIZE]);
     const labels = this.model.trainOnPolicy([stateTensor]);
-    const action = labels[0].dataSync();
+    const action = labels[0];
     this.takeAction(action);
   }
 
@@ -231,12 +231,14 @@ function draw() {
   cars.forEach(car => {
     car.draw(context);
     if (car.id == 0) {
-      car.runNetworkFrame(true);
-      // if (actionsTaken < 1e4) {
-      //   car.runPretrainFrame();
-      // } else {
-      //   car.runNetworkFrame();
-      // }
+      // car.runNetworkFrame(true);
+      if (actionsTaken < 1e4) {
+        car.runPretrainFrame();
+        console.log(`action ${actionsTaken}`)
+      } else {
+        car.runNetworkFrame(true);
+      }
+      actionsTaken++;
     }
   });
 }

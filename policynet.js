@@ -32,6 +32,11 @@ export default class PolicyNetwork {
       units: output,
       activation: "softmax",
     }));
+    this.network.compile({
+      optimizer: "sgd",
+      loss: "categoricalCrossentropy",
+      metrics: ["accuracy"]
+    });
   }
 
   predict(stateTensor) {
@@ -98,7 +103,7 @@ export default class PolicyNetwork {
   }
 
   defaultPolicy(state) {
-    const [d1, d2, d3, d4, d5, x, y, vx, vy] = state;
+    const [d1, d2, d3, d4, d5, x, y, vx, vy] = state.dataSync();
     const leftDist = (d1 + d2) / 2;
     const frontDist = (d2 + d3 + d4) / 3;
     const rightDist = (d4 + d5) / 2;
@@ -114,9 +119,12 @@ export default class PolicyNetwork {
       if (leftDist > rightDist) {
         // turn left
         action = 'L';
-      } else {
+      } else if (rightDist > leftDist) {
         // turn right
         action = 'R';
+      } else {
+        // speed up
+        action = 'U';
       }
     }
     return PolicyNetwork.actions.indexOf(action);
@@ -124,6 +132,8 @@ export default class PolicyNetwork {
 
   trainOnPolicy(states, policy = this.defaultPolicy) {
     const labels = states.map(policy);
+    console.log(states, labels);
     this.network.fit(states, labels);
+    return labels;
   }
 }
