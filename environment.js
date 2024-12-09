@@ -42,7 +42,7 @@ class Car {
     this.vy = vy;
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
-    this.model = new PolicyNetwork();
+    this.model = new PolicyNetwork(this.id);
     this.isCar = true;
   }
 
@@ -57,15 +57,11 @@ class Car {
     this.takeAction(action);
   }
 
-  runPretrainFrame(log = false) {
+  async runPretrainFrame(log = false) {
     const state = this.getState();
     const stateTensor = tf.tensor2d(state, [1, this.model.STATE_SIZE]);
-    const labels = this.model.trainOnPolicy([stateTensor]);
-    const action = labels[0];
-
-    if (log) {
-      console.log(`Car ${this.id}: ${state} -> ${action}`)
-    }
+    const labels = await this.model.trainOnPolicy([stateTensor], log);
+    const action = labels[0].argMax(1).dataSync()[0];
 
     this.takeAction(action);
   }
@@ -139,7 +135,7 @@ class Car {
     // position context
     context.translate(this.x, this.y);
     // context.rotate(Math.atan2(this.vy, this.vx) + baseRotation);
-    context.strokeStyle = this.id == 0 ? "blue" : "black";
+    context.strokeStyle = "black"; //this.id == 0 ? "blue" : "black";
     context.fillStyle = "blue";
 
     // inner dot
@@ -227,7 +223,7 @@ for (let i = 0; i < numWalls; i++) {
 }
 
 let actionsTaken = 0;
-function draw() {
+async function draw() {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
   context.strokeStyle = "gray";
@@ -236,16 +232,17 @@ function draw() {
 
   cars.forEach(car => {
     car.draw(context);
-    if (car.id == 0) {
-      // car.runNetworkFrame(true);
-      if (actionsTaken < 1e4) {
-        car.runPretrainFrame();
-      } else {
-        car.runNetworkFrame(true);
-      }
-      actionsTaken++;
+  })
+
+  for (const car of cars) {
+    // car.runNetworkFrame(true);
+    if (actionsTaken < 1e4) {
+      await car.runPretrainFrame();
+    } else {
+      car.runNetworkFrame(true);
     }
-  });
+  }
+  actionsTaken++;
 }
 
 function main() {
@@ -318,8 +315,9 @@ function main() {
       car.x = Math.min(Math.max(car.x + car.vx * dTime * baseSpeed, Car.radius), 500 - Car.radius);
       car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500 - Car.radius);
     }
-    draw();
-    window.requestAnimationFrame(loop);
+    draw().then(() => {
+      window.requestAnimationFrame(loop);
+    });
   }
   window.requestAnimationFrame(loop);
 }

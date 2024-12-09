@@ -1,7 +1,7 @@
 export default class PolicyNetwork {
   static actions = ['L', 'R', 'U', 'D'];
 
-  constructor(carId, stateSize = 9, actionSize = PolicyNetwork.actions.length) {
+  constructor(carId, stateSize = 9, actionSize = 4 /* PolicyNetwork.actions.length */) {
     this.STATE_SIZE = stateSize;
     this.ACTION_SIZE = actionSize;
     this.BATCH_SIZE = 32;
@@ -107,7 +107,7 @@ export default class PolicyNetwork {
     return action;
   }
 
-  defaultPolicy(state) {
+  defaultPolicy(state, actionSize = 4) {
     const [d1, d2, d3, d4, d5, x, y, vx, vy] = state.dataSync();
     const leftDist = (d1 + d2) / 2;
     const frontDist = (d2 + d3 + d4) / 3;
@@ -132,13 +132,18 @@ export default class PolicyNetwork {
         action = 'U';
       }
     }
-    return PolicyNetwork.actions.indexOf(action);
+    const actionIdx = PolicyNetwork.actions.indexOf(action);
+    const actionTensor = tf.oneHot([actionIdx], actionSize);
+    return actionTensor;
   }
 
-  trainOnPolicy(states, policy = this.defaultPolicy) {
-    const labels = states.map(policy);
-    console.log(states, labels);
-    this.network.fit(states, labels);
+  async trainOnPolicy(states, log = false, policy = this.defaultPolicy) {
+    const labels = states.map(s => policy(s, this.ACTION_SIZE));
+    // console.log(states, labels);
+    const history = await this.network.fit(states, labels);
+    if (log) {
+      console.log("History:", history);
+    }
     return labels;
   }
 }
