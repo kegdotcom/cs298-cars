@@ -9,7 +9,7 @@ export function distance_to_line(cx, cy, lx0, ly0, lx1, ly1, r = 0) {
 }
 
 export function distance_to_circle(x, y, cx, cy, r = 0) {
-  return Math.hypot(x - cx, y - cy) - (2 * r);
+  return Math.hypot(x - cx, y - cy);
 }
 
 export function reflect(vx, vy, nx, ny) {

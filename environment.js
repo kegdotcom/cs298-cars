@@ -1,16 +1,13 @@
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg, getRandom } from "./math-functions.js";
 import PolicyNetwork, { GlobalNetwork } from "./policynet.js";
 
-class Obstacle {
-  static obstacleCt = 0;
-}
-
-class Wall extends Obstacle {
+let obstacleCt = 0;
+class Wall {
   constructor({ p0, p1 } = {}) {
-    this.id = ++Obstacle.obstacleCt;
+    this.id = ++obstacleCt;
 
-    const [x0, y0] = p0 || [];
-    const [x1, y1] = p1 || [];
+    const [x0, y0] = p0 || [getRandom(0, 500), getRandom(0, 500)];
+    const [x1, y1] = p1 || [getRandom(0, 500), getRandom(0, 500)];
     this.x1 = x0;
     this.y1 = y0;
     this.x2 = x1;
@@ -29,14 +26,14 @@ class Wall extends Obstacle {
   }
 }
 
-class Car extends Obstacle {
+class Car {
   static radius = 10;
   static dTheta = 1;
   static dSpeed = 0.1;
   static epsilon = 0.75;
   static delta = 0.5;
   constructor({ x, y, vx, vy } = {}) {
-    this.id = ++Obstacle.obstacleCt;
+    this.id = ++obstacleCt;
     this.x = x || getRandom(Car.radius, 500 - Car.radius);
     this.y = y || getRandom(Car.radius, 500 - Car.radius);
     this.vx = vx || getRandom(1, 10);
@@ -59,13 +56,14 @@ class Car extends Obstacle {
     this.takeAction(action);
   }
 
-  runPretrainFrame(takeAction = false, log = false) {
+  async runPretrainFrame(takeAction = false, log = false) {
     const state = this.getState();
     const stateTensor = tf.tensor2d(state, [1, this.model.STATE_SIZE]);
-    const actions = this.model.trainOnPolicy([stateTensor], log);
-    const action = labels[0].dataSync()[0];
-
-    if (takeAction) this.takeAction(action);
+    const actionTensors = await this.model.trainOnPolicy([stateTensor], log);
+    if (takeAction) {
+      const action = actionTensors[0].dataSync()[0];
+      this.takeAction(action);
+    }
   }
 
   turnLeft() {
@@ -132,7 +130,7 @@ class Car extends Obstacle {
   }
 
 
-  draw(context) {
+  draw(context, obstacles) {
     context.save();
     // position context
     context.translate(this.x, this.y);
@@ -163,7 +161,6 @@ class Car extends Obstacle {
     ];
 
     rays.forEach((ray, idx) => {
-      const obstacles = [...cars, ...walls];
       let min_dist = 1e3;
       let min_dist_pt;
       obstacles.forEach(ob => {
@@ -197,44 +194,45 @@ class Car extends Obstacle {
   }
 }
 
-function draw(context, globalNetwork, frame, cars, walls = []) {
+async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
   context.strokeStyle = "gray";
   walls.forEach(wall => wall.draw(context));
+  cars.forEach(car => car.draw(context, [...cars, ...walls]));
   context.restore();
 
-  cars.forEach(car => {
-    car.draw(context);
-  })
-
-  const pretrainThreshold = 1e4;
+  const pretraining = frame < 1e4;
+  console.log(`Frame ${frame}: ${pretraining ? "Pretraining" : "RL"}`)
   if (globalNetwork === null) {
     for (const car of cars) {
-      // car.runNetworkFrame(true);
-      if (frame < pretrainThreshold) {
-        car.runPretrainFrame();
+      if (pretraining) {
+        // individual network pretraining
+        await car.runPretrainFrame(true);
       } else {
+        // individual network reinforce
         car.runNetworkFrame(true);
       }
     }
   } else {
     const stateTensors = cars.map(car => tf.tensor1d(car.getState()));
     const stateStack = tf.stack(stateTensors);
-
+    const takeActions = true;
     let actions;
-    if (frame < pretrainThreshold) {
-      const [actionsTensor] = globalNetwork.trainOnPolicy([stateStack]);
-      actions = actionsTensor.dataSync();
+    if (pretraining) {
+      // global network pretraining
+      const actionsTensors = await globalNetwork.trainOnPolicy([stateStack])
+      actions = actionsTensors[0].dataSync();
     } else {
+      // global network reinforce
       const actionsTensor = globalNetwork.runFrame(stateStack);
       actions = actionsTensor.dataSync();
     }
 
-    // actually take the action computed
-    cars.forEach((car, idx) => car.takeAction(actions[idx]));
+    if (takeActions) {
+      cars.forEach((car, idx) => car.takeAction(actions[idx]));
+    }
   }
-  frame++;
 }
 
 function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
@@ -261,6 +259,7 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
   const realWorldCooldownTime = 0.5; // wanted cooldown time in seconds 
   let frameRate = 60; // default frame rate
   let lastFrameTime = performance.now()
+  let actionsTaken = 0;
 
   function loop(timestamp) {
     const dTime = lastFrameTime ? (timestamp - lastFrameTime) / 1000 : 0;
@@ -279,7 +278,7 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
         obstacle: obstacle,
         distance: Math.abs(
           obstacle instanceof Car ?
-            distance_to_circle(car.x, car.y, obstacle.x, obstacle.y, Car.radius) :
+            distance_to_circle(car.x, car.y, obstacle.x, obstacle.y) - Car.radius :
             distance_to_line(car.x, car.y, obstacle.x1, obstacle.y1, obstacle.x2, obstacle.y2)
         )
       }));
@@ -292,7 +291,7 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
           return;
         };
         if (distance <= Car.radius) {
-          console.log("bam");
+          console.log(`Car ${car.id} hit ${obstacle instanceof Car ? "Car" : "Wall"} ${obstacle.id}`);
           car.collisions += 1;
           collisionCooldowns.set(collisionKey, cooldownInFrames);
           let newVx, newVy;
@@ -300,7 +299,7 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
           if (obstacle instanceof Car) {
             [newVx, newVy] = reflect(car.vx, car.vy, car.x - obstacle.x, car.y - obstacle.y);
             [obVx, obVy] = reflect(obstacle.vx, obstacle.vy, obstacle.x - car.x, obstacle.y - car.y);
-            const overlap = Car.radius - distance / 2;
+            const overlap = (Car.radius - distance) * 1.01;
             const theta = Math.atan2(car.y - obstacle.y, car.x - obstacle.x);
             car.x += overlap * Math.cos(theta);
             car.y += overlap * Math.sin(theta);
@@ -327,9 +326,10 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
       car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500 - Car.radius);
     }
 
-    let actionsTaken = 0;
-    draw(context, globalNetwork, actionsTaken, cars, walls);
-    window.requestAnimationFrame(loop);
+    draw(canvas, context, globalNetwork, actionsTaken, cars, walls).then(() => {
+      actionsTaken++;
+      window.requestAnimationFrame(loop);
+    });
   }
   window.requestAnimationFrame(loop);
 }
@@ -367,4 +367,5 @@ document.getElementById("speed").onchange = (e) => {
   baseSpeed = Number(e.target.value);
 }
 
-main(true, nCars, nWalls);
+const useGlobalNetwork = true;
+main(useGlobalNetwork, nCars, nWalls);
