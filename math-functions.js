@@ -79,3 +79,7 @@ export function ray_intersect_circle(x0 = [0, 0], d0 = [1, 1], x1 = [0, 0], r = 
     else return vec_add(x0, d0, 1, t);
   }
 }
+
+export function getRandom(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
