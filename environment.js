@@ -54,13 +54,19 @@ class Car {
     const stateTensor = tf.tensor2d(this.getState(), [1, this.model.STATE_SIZE]);
     const actionTensor = this.model.runFrame(stateTensor, train);
     const action = actionTensor.dataSync()[0];
-    this.takeAction(action, train);
+    this.takeAction(action);
   }
 
-  runPretrainFrame() {
-    const stateTensor = tf.tensor2d(this.getState(), [1, this.model.STATE_SIZE]);
+  runPretrainFrame(log = false) {
+    const state = this.getState();
+    const stateTensor = tf.tensor2d(state, [1, this.model.STATE_SIZE]);
     const labels = this.model.trainOnPolicy([stateTensor]);
     const action = labels[0];
+
+    if (log) {
+      console.log(`Car ${this.id}: ${state} -> ${action}`)
+    }
+
     this.takeAction(action);
   }
 
@@ -234,7 +240,6 @@ function draw() {
       // car.runNetworkFrame(true);
       if (actionsTaken < 1e4) {
         car.runPretrainFrame();
-        console.log(`action ${actionsTaken}`)
       } else {
         car.runNetworkFrame(true);
       }

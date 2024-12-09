@@ -9,6 +9,7 @@ export default class PolicyNetwork {
     this.LEARNING_RATE = tf.scalar(0.01, "float32");
 
     this.states = [];
+    this.rewards = [];
 
     this.optimizer = tf.train.adam(this.LEARNING_RATE);
     // this.prevState = tf.variable(tf.zeros([1, this.STATE_SIZE]), false, `prevState-${carId}`, "float32");
@@ -84,6 +85,10 @@ export default class PolicyNetwork {
         const actions = logits.argMax(1);
         const logProbs = logits.mul(tf.oneHot(actions, this.ACTION_SIZE)).sum(1).log();
         const rewards = this.discountedRewards(statesTensor);
+
+        const avgReward = tf.mean(rewards);
+        avgReward.print();
+
         const loss = tf.mul(logProbs, rewards).mean();
         return tf.neg(loss);
       });
