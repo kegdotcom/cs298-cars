@@ -107,7 +107,7 @@ export default class PolicyNetwork {
   runFrame(stateTensor, train = false) {
     if (train) {
       this.states.push(stateTensor);
-      if (this.states.length === this.BATCH_SIZE) {
+      if (this.states.length >= this.BATCH_SIZE) {
         this.updateWeights();
         this.states = [];
       }
@@ -164,10 +164,12 @@ export class GlobalNetwork {
     this.STATE_SIZE = stateSize;
     this.ACTION_SIZE = actionSize;
     this.BATCH_SIZE = 32;
-    this.DISCOUNT_FACTOR = tf.scalar(0.1, "float32");
-    this.LEARNING_RATE = tf.scalar(0.01, "float32");
+    this.DISCOUNT_FACTOR = 0.1;
+    this.LEARNING_RATE = 0.001;
+    this.E = 0.1
 
     this.stateStacks = [];
+    this.labelStacks = [];
     this.rewards = [];
 
     this.optimizer = tf.train.adam(this.LEARNING_RATE);
@@ -193,11 +195,24 @@ export class GlobalNetwork {
     });
   }
 
-  bulkPredictAction(stateStack, epsilonGreedy = false /* TODO */) {
-    const logits = this.network.predict(tf.stack([stateStack])); // shape [1, nCars, actionSize]
-    // no epsilon greedy yet, TODO
-    const actionsTensor = logits.argMax(2).reshape([this.N]); // shape [nCars]
-    return actionsTensor;
+  bulkPredictAction(stateStack, epsilonGreedy = false) {
+    return tf.tidy(() => {
+      const x = tf.stack([stateStack]); // shape [1, nCars, stateSize]
+      // x.print();
+      const logits = this.network.predict(x); // shape [1, nCars, actionSize]
+      const actions = tf.tidy(() => {
+        if (epsilonGreedy) {
+          const bestActions = logits.argMax(2).reshape([this.N]);
+          const randomActions = tf.randomUniformInt([this.N], 0, 4);
+          const explore = tf.less(tf.randomUniform([this.N]), this.E);
+          return tf.where(explore, randomActions, bestActions);
+        } else {
+          return logits.argMax(2).reshape([this.N]);
+        }
+      });
+      // logits.print();
+      return actions;
+    });
   }
 
   calcActionReward(state, statePrime) {
@@ -281,6 +296,7 @@ export class GlobalNetwork {
   }
 
   runFrame(stateStack, train = false) {
+    // this.printWeights();
     if (train) {
       this.stateStacks.push(stateStack);
       if (this.stateStacks.length === this.BATCH_SIZE) {
@@ -289,7 +305,8 @@ export class GlobalNetwork {
         this.stateStacks = [];
       }
     }
-    const actionsTensor = this.bulkPredictAction(stateStack); // shape [nCars]
+    const actionsTensor = this.bulkPredictAction(stateStack, true); // shape [nCars]
+    actionsTensor.print();
     return actionsTensor;
   }
 
@@ -324,16 +341,36 @@ export class GlobalNetwork {
   }
 
   async trainOnPolicy(stateStacks, log = false, policy = this.defaultPolicy) {
+    this.stateStacks.push(...stateStacks);
+
     const labelTensorLists = stateStacks.map(stack => {
       const states = stack.arraySync();
       return states.map(state => policy(state, this.ACTION_SIZE));
     });
     const labelStacks = labelTensorLists.map(labelTensors => tf.stack(labelTensors));
-    const history = await this.network.fit(tf.stack(stateStacks), tf.stack(labelStacks));
-    if (log) console.log("Global History:", history);
+    this.labelStacks.push(...labelStacks);
+
+    if (this.stateStacks.length >= 1e3) {
+
+      const x = tf.stack(this.stateStacks);
+      const y = tf.stack(this.labelStacks);
+      const history = await this.network.fit(x, y, {
+        batchSize: 32,
+        epochs: 5
+      });
+      this.stateStacks = [];
+      this.labelStacks = [];
+      if (log) console.log("Global History:", history);
+    }
 
     const actionsTensors = labelStacks.map(stack => stack.argMax(1));
     // console.log("pre glob acts", actionsTensors);
     return actionsTensors;
+  }
+
+  printWeights() {
+    this.network.getWeights().forEach((weight, layer) => {
+      console.log(`Layer ${layer} weights: ${weight.toString()}`);
+    })
   }
 }

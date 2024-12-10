@@ -226,6 +226,7 @@ async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
     } else {
       // global network reinforce
       const actionsTensor = globalNetwork.runFrame(stateStack);
+      actionsTensor.print();
       actions = actionsTensor.dataSync();
     }
 
@@ -236,6 +237,18 @@ async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
 }
 
 function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
+  let paused = true;
+  document.getElementById("play-pause").onclick = (e) => {
+    paused = !paused;
+    baseSpeed = baseSpeed === 0 ? 1 : 0;
+    e.target.innerText = baseSpeed === 0 ? "Play" : "Pause";
+    if (!paused) {
+      window.requestAnimationFrame(loop);
+    }
+  }
+  document.getElementById("speed").onchange = (e) => {
+    baseSpeed = Number(e.target.value);
+  }
   const canvas = document.getElementById("298-canvas");
   const context = canvas.getContext("2d");
 
@@ -328,7 +341,9 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
 
     draw(canvas, context, globalNetwork, actionsTaken, cars, walls).then(() => {
       actionsTaken++;
-      window.requestAnimationFrame(loop);
+      if (!paused) {
+        window.requestAnimationFrame(loop);
+      }
     });
   }
   window.requestAnimationFrame(loop);
@@ -357,15 +372,6 @@ document.addEventListener("keydown", e => {
 const nCars = 3;
 const nWalls = 2;
 let baseSpeed = 1;
-
-document.getElementById("play-pause").onclick = (e) => {
-  baseSpeed = baseSpeed === 0 ? 1 : 0;
-  e.target.innerText = baseSpeed === 0 ? "Play" : "Pause";
-}
-
-document.getElementById("speed").onchange = (e) => {
-  baseSpeed = Number(e.target.value);
-}
 
 const useGlobalNetwork = true;
 main(useGlobalNetwork, nCars, nWalls);
