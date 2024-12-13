@@ -1,16 +1,18 @@
+// import fs from "fs";
+
 export default class PolicyNetwork {
   static actions = ['L', 'R', 'U', 'D'];
 
-  constructor(carId, stateSize = 9, actionSize = 4 /* PolicyNetwork.actions.length */) {
+  constructor(carId, stateSize = 10, actionSize = 4 /* PolicyNetwork.actions.length */) {
     this.STATE_SIZE = stateSize;
     this.ACTION_SIZE = actionSize;
-    this.BATCH_SIZE = 32;
-    this.DISCOUNT_FACTOR = tf.scalar(0.1, "float32");
-    this.LEARNING_RATE = tf.scalar(0.01, "float32");
+    this.BATCH_SIZE = 128;
+    this.DISCOUNT_FACTOR = 0.1; //tf.scalar(0.1, "float32");
+    this.LEARNING_RATE = 0.01; //tf.scalar(0.01, "float32");
     this.E = 0.1;
 
     this.states = [];
-    this.rewards = [];
+    this.reward;
 
     this.optimizer = tf.train.adam(this.LEARNING_RATE);
     // this.prevState = tf.variable(tf.zeros([1, this.STATE_SIZE]), false, `prevState-${carId}`, "float32");
@@ -159,21 +161,26 @@ export default class PolicyNetwork {
 }
 
 export class GlobalNetwork {
-  constructor(nCars, stateSize, actionSize) {
+  static actions = ['L', 'R', 'U', 'D']
+  constructor(load, nCars, stateSize, actionSize) {
     this.N = nCars;
     this.STATE_SIZE = stateSize;
     this.ACTION_SIZE = actionSize;
     this.BATCH_SIZE = 32;
-    this.DISCOUNT_FACTOR = 0.1;
+    this.DISCOUNT_FACTOR = 0.9;
     this.LEARNING_RATE = 0.001;
     this.E = 0.1
 
     this.stateStacks = [];
     this.labelStacks = [];
-    this.rewards = [];
+    this.avgRewards = [0, 0, 0];
+    this.nRewards = [0, 0, 0];
 
     this.optimizer = tf.train.adam(this.LEARNING_RATE);
-    this.createNetwork();
+    if (!load) {
+      this.createNetwork();
+    }
+    this.actions = 0;
   }
 
   createNetwork() {
@@ -215,61 +222,47 @@ export class GlobalNetwork {
     });
   }
 
-  calcActionReward(state, statePrime) {
-    return tf.tidy(() => {
-      const statePosition = tf.slice(state, [5], [2]); // [x, y]
-      const statePrimePosition = tf.slice(statePrime, [5], [2]) // [x', y']
-
-      const statePrimeCollisions = tf.gather(statePrime, [9])
-      const stateCollisions = tf.gather(state, [9]);
-      const dCollisions = tf.sub(stateCollisions, statePrimeCollisions);
-
-      const distanceReward = tf.sub(statePrimePosition, statePosition).square().sum().sqrt();
-      const collisionPenaltyFactor = dCollisions.add(1);
-      const reward = tf.mul(distanceReward, collisionPenaltyFactor);
-
-      return reward;
-    });
-  }
-
-  discountedRewards(stateStackStack) {
+  calcRewards(stateStackStack, speedFactor = 50) {
     return tf.tidy(() => {
       const positions = stateStackStack.slice([0, 0, 5], [-1, -1, 2]); // shape [batchSize, nCars, 2] (x, y)
 
       const ps = positions.slice([0, 0, 0], [positions.shape[0] - 1, -1, -1]);
       const pPrimes = positions.slice([1, 0, 0]);
-      const distanceRewards = tf.sub(pPrimes, ps).square().sum(2).sqrt(); // shape [batchSize-1, nCars]
+      const distanceRewards = tf.sub(pPrimes, ps).square().sum(2).sqrt().mul(speedFactor); // shape [batchSize-1, nCars]
 
-      const collisions = stateStackStack.slice([0, 0, this.STATE_SIZE - 1]); // shape [batchSize, nCars, 1]
-      const cs = collisions.slice([0, 0, 0], [collisions.shape[0] - 1, -1, -1]); // shape [batchSize-1, nCars, 1]
-      const cPrimes = collisions.slice([1, 0, 0]); // shape [batchSize-1, nCars, 1]
-      const dCollisions = tf.sub(cPrimes, cs); // shape [batchSize-1, nCars, 1]
-      const collisionMultipliers = dCollisions.neg().add(1).sum(2); // shape [batchSize-1, nCars]
+      const startCollisions = stateStackStack.slice([0, 0, this.STATE_SIZE - 1], [1, -1, 1]).reshape([this.N]);
+      const endCollisions = stateStackStack.slice([this.BATCH_SIZE - 1, 0, this.STATE_SIZE - 1], [1, -1, 1]).reshape([this.N]);
+      const collisionFactor = tf.sub(endCollisions, startCollisions).add(1).pow(2);
+      const rewards = tf.div(distanceRewards, collisionFactor);
+      const avgRewards = rewards.mean(0).arraySync();
+      this.avgRewards = this.avgRewards.map((rew, idx) => {
+        return rew + (avgRewards[idx] / ++this.nRewards[idx]);
+      });
+      return rewards;
+    });
+  }
 
-      const rewards = tf.mul(distanceRewards, collisionMultipliers); // shape [batchSize-1, nCars]
-      const powers = tf.range(0, this.BATCH_SIZE - 1).tile([1, this.N]); // shape [batchSize-1, nCars]
+  discountRewards(stateStackStack) {
+    return tf.tidy(() => {
+      const rewards = this.calcRewards(stateStackStack);
+      const powers = tf.range(0, this.BATCH_SIZE - 1).reshape([this.BATCH_SIZE - 1, 1]).tile([1, this.N]); // shape [batchSize-1, nCars] each col is 0-30
       const discounts = tf.pow(this.DISCOUNT_FACTOR, powers);
-      for (let i = 0; i < this.BATCH_SIZE - 1; i++) {
-        const futures = rewards.slice([i + 1, 0]);
-        const futureDiscounts = discounts.slice([i + 1, 0]);
-        const futureRewards = tf.mul(futures, futureDiscounts).sum(0); // shape [nAgents]
-        const indices = tf.stack([tf.fill([this.N], i), tf.range(0, this.N)]).transpose(); // shape [nAgents, 2]
-
-        // console.log("fff");
-        // rewards.print()
-        // indices.print()
-        // futureRewards.print()
-
+      for (let i = 0; i < this.BATCH_SIZE - 2; i++) {
+        const futures = rewards.slice([i, 0]);
+        const futureDiscounts = discounts.slice([i, 0]);
+        const futureRewards = tf.mul(futures, futureDiscounts).sum(0) // shape [nAgents]
+        const indices = tf.stack([tf.fill([this.N], i, "int32"), tf.range(0, this.N, 1, "int32")]).transpose(); // shape [nAgents, 2]
         tf.tensorScatterUpdate(rewards, indices, futureRewards);
       }
       return rewards;
     });
   }
 
-  updateWeights() {
+  updateWeights(stateStacks) {
+    console.log("MINIMIZING")
     this.optimizer.minimize(() => {
       return tf.tidy(() => {
-        const stateStackStack = tf.stack(this.stateStacks); // shape [batchSize, nCars, stateSize]
+        const stateStackStack = tf.stack(stateStacks); // shape [batchSize, nCars, stateSize]
         const logits = this.network.predict(stateStackStack).slice([0, 0, 0], [this.BATCH_SIZE - 1, -1, -1]); // shape [batchSize-1, nCars, actionSize]
 
         // epsilon-greedy action selection
@@ -278,39 +271,53 @@ export class GlobalNetwork {
         const explore = tf.less(tf.randomUniform([this.BATCH_SIZE - 1, this.N]), this.E);
         const actions = tf.where(explore, randomActions, bestActions); // shape [batchSize-1, nCars]
 
-        const logProbs = logits.mul(tf.oneHot(actions, this.ACTION_SIZE)).sum(2).log(); // shape [batchSize-1, nCars]
-        const rewards = this.discountedRewards(stateStackStack); // shape [batchSize-1, nCars]
+        const oneHotActions = tf.oneHot(bestActions, this.ACTION_SIZE);
+        const probs = logits.clipByValue(0.1, 0.9).mul(oneHotActions)
+        const logProbs = probs.sum(2).log(); // shape [batchSize-1, nCars]
+        // console.log('probs', logits.arraySync(), oneHotActions.arraySync(), probs.arraySync(), logProbs.arraySync())
+        // const rewards = this.calcRewards(stateStackStack);
+        const rewards = this.discountRewards(stateStackStack);
 
-        // these loss calculations try to optimize the total global reward
-        const globalRewards = tf.mul(rewards, logProbs).mean(1); // shape [batchSize-1]
-        const avgGlobalReward = tf.mean(globalRewards);
-        this.rewards.push(avgGlobalReward);
-
+        // console.log("steps", rewards.arraySync(), logProbs.arraySync())
         // more greedy option (cars care less about the other cars)
-        const lossOption1 = tf.mul(rewards, logProbs).mean().neg();
+        const lossOption1 = tf.mul(rewards, logProbs).mean(0).sum().neg();
+
         // mean-subtracted Q function
         const lossOption2 = tf.sub(rewards, tf.mean(rewards)).mul(logProbs).mean().neg();
-        return lossOption2;
+        // lossOption2.print()
+        console.log("Loss");
+        lossOption1.print()
+        return lossOption1;
       });
     })
   }
 
-  runFrame(stateStack, train = false) {
+  async runFrame(stateStack, train = true) {
+    if (this.network === undefined) {
+      await this.loadModel();
+    }
+    if (++this.actions % 2500 === 0) {
+      await this.network.save("localstorage://model");
+      this.printWeights();
+    };
     // this.printWeights();
     if (train) {
       this.stateStacks.push(stateStack);
+      // console.log(this.stateStacks.length, this.BATCH_SIZE);
       if (this.stateStacks.length === this.BATCH_SIZE) {
-        this.updateWeights();
-        console.log("Rewards:", this.rewards);
-        this.stateStacks = [];
+        this.updateWeights(this.stateStacks);
+        // this.stateStacks.forEach(stack => {
+        //   stack.dispose();
+        // });
+        this.stateStacks.length = 0;
       }
     }
     const actionsTensor = this.bulkPredictAction(stateStack, true); // shape [nCars]
-    actionsTensor.print();
+    // actionsTensor.print();
     return actionsTensor;
   }
 
-  defaultPolicy(state, actionSize) {
+  defaultPolicy(state) {
     const [d1, d2, d3, d4, d5, x, y, vx, vy] = state;
     const leftDist = (d1 + d2) / 2;
     const frontDist = (d2 + d3 + d4) / 3;
@@ -332,45 +339,82 @@ export class GlobalNetwork {
         action = 'R';
       } else {
         // speed up
-        action = 'U';
+        action = 'D';
       }
     }
-    const actionIdx = PolicyNetwork.actions.indexOf(action);
-    const actionTensor = tf.oneHot(actionIdx, actionSize);
-    return actionTensor;
+    return GlobalNetwork.actions.indexOf(action);
   }
 
-  async trainOnPolicy(stateStacks, log = false, policy = this.defaultPolicy) {
-    this.stateStacks.push(...stateStacks);
+  async trainOnPolicy(stateStacks, record = false, policy = this.defaultPolicy) {
+    if (++this.actions % 2500 === 0) this.printWeights();
+    const [x, y, actions] = tf.tidy(() => {
+      // if (record) {
+      // const writeStream = fs.createWriteStream("pretraining-states.json", { flags: 'a' });
+      // stateStacks.forEach(stack => {
+      // const stateList = stack.arraySync();
+      // writeStream.write(JSON.stringify(stateList) + '\n');
+      // })
+      // writeStream.end();
+      // }
 
-    const labelTensorLists = stateStacks.map(stack => {
-      const states = stack.arraySync();
-      return states.map(state => policy(state, this.ACTION_SIZE));
-    });
-    const labelStacks = labelTensorLists.map(labelTensors => tf.stack(labelTensors));
-    this.labelStacks.push(...labelStacks);
-
-    if (this.stateStacks.length >= 1e3) {
-
-      const x = tf.stack(this.stateStacks);
-      const y = tf.stack(this.labelStacks);
-      const history = await this.network.fit(x, y, {
-        batchSize: 32,
-        epochs: 5
+      this.stateStacks.push(...stateStacks);
+      const actionLists = stateStacks.map(stateStack => {
+        const states = stateStack.arraySync();
+        const actionIdxs = states.map(policy);
+        return actionIdxs;
       });
-      this.stateStacks = [];
-      this.labelStacks = [];
-      if (log) console.log("Global History:", history);
+
+      // if (record) {
+      //   const writeStream = fs.createWriteStream("pretraining-labels.json", { flags: 'a' });
+      //   actionLists.forEach(actions => {
+      //     writeStream.write(JSON.stringify(actions) + '\n');
+      //   })
+      //   writeStream.end();
+      // }
+
+      const labelStacks = actionLists.map(actions => tf.oneHot(actions, this.ACTION_SIZE));
+      this.labelStacks.push(...labelStacks);
+
+      const stateMatrix = tf.stack(stateStacks);
+      const labelMatrix = tf.stack(labelStacks);
+      return [stateMatrix, labelMatrix, actionLists];
+    });
+
+    if (this.stateStacks.length === this.BATCH_SIZE) {
+      await this.network.fit(x, y, {
+        batchSize: 32,
+        epochs: 3
+      });
+      x.dispose();
+      y.dispose();
+
+      // this.stateStacks.forEach(stack => {
+      //   stack.dispose();
+      // });
+      this.stateStacks.length = 0;
+      // this.labelStacks.forEach(stack => {
+      //   stack.dispose();
+      // });
+      this.labelStacks.length = 0;
     }
 
-    const actionsTensors = labelStacks.map(stack => stack.argMax(1));
     // console.log("pre glob acts", actionsTensors);
-    return actionsTensors;
+    return actions;
   }
 
+  async loadModel() {
+    this.network = await tf.loadLayersModel("localstorage://model");
+  }
+
+  getRewards() {
+    return this.rewards.map(arraySync);
+  }
   printWeights() {
+    const mem = tf.memory();
+    console.log("memory", mem.numTensors, mem);
     this.network.getWeights().forEach((weight, layer) => {
       console.log(`Layer ${layer} weights: ${weight.toString()}`);
-    })
+    });
+    console.log("rew", this.avgRewards);
   }
 }

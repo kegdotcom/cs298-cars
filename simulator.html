@@ -8,9 +8,12 @@
   <body>
     <div style="display: flex; flex-direction: column; justify-content: center; align-items: center">
       <canvas style="border: 1px solid black" id="298-canvas" width="500" height="500"></canvas>
-      <div style="display: flex; flex-direction: row; justify-content: center; align-items: center">
-        <button id="play-pause">Pause</button>
-        <input type="range" min="0" max="10" step="0.1" value="1" id="speed" />
+      <div style="display: flex; flex-direction: column; justify-content: center; align-items: center">
+        <span>
+          <button id="play-pause">Pause</button>
+          <input type="range" min="0" max="10" step="0.1" value="5" id="speed" />
+        </span>
+        <span>Frame: <span id="frame-ct"></span></span>
       </div>
     </div>
     <!-- <script src="math-functions.js" type="module" defer></script> -->

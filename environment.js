@@ -1,5 +1,6 @@
 import { distance_to_circle, distance_to_line, reflect, ray_intersect_circle, ray_intersect_seg, getRandom } from "./math-functions.js";
 import PolicyNetwork, { GlobalNetwork } from "./policynet.js";
+// import fs from "fs";
 
 let obstacleCt = 0;
 class Wall {
@@ -32,7 +33,7 @@ class Car {
   static dSpeed = 0.1;
   static epsilon = 0.75;
   static delta = 0.5;
-  constructor({ x, y, vx, vy } = {}) {
+  constructor(useGlobalNetwork = true, { x, y, vx, vy } = {}) {
     this.id = ++obstacleCt;
     this.x = x || getRandom(Car.radius, 500 - Car.radius);
     this.y = y || getRandom(Car.radius, 500 - Car.radius);
@@ -41,8 +42,8 @@ class Car {
     this.collisions = 0;
     this.theta = Math.atan2(vy, vx);
     this.rayLengths = new Array(5);
-    this.model = new PolicyNetwork(this.id, 10);
     this.isCar = true;
+    this.model = useGlobalNetwork ? null : new PolicyNetwork(this.id, 10);
   }
 
   getState() {
@@ -194,7 +195,7 @@ class Car {
   }
 }
 
-async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
+async function draw(canvas, context, globalNetwork, readFromFile, frame, cars, walls = []) {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.save();
   context.strokeStyle = "gray";
@@ -202,8 +203,8 @@ async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
   cars.forEach(car => car.draw(context, [...cars, ...walls]));
   context.restore();
 
-  const pretraining = frame < 1e4;
-  console.log(`Frame ${frame}: ${pretraining ? "Pretraining" : "RL"}`)
+  const pretraining = !readFromFile && frame < pretrainThreshold;
+  // console.log(`Frame ${frame}: ${pretraining ? "Pretraining" : "RL"}`)
   if (globalNetwork === null) {
     for (const car of cars) {
       if (pretraining) {
@@ -221,12 +222,11 @@ async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
     let actions;
     if (pretraining) {
       // global network pretraining
-      const actionsTensors = await globalNetwork.trainOnPolicy([stateStack])
-      actions = actionsTensors[0].dataSync();
+      actions = (await globalNetwork.trainOnPolicy([stateStack]))[0];
     } else {
       // global network reinforce
-      const actionsTensor = globalNetwork.runFrame(stateStack);
-      actionsTensor.print();
+      const actionsTensor = await globalNetwork.runFrame(stateStack);
+      // actionsTensor.print();
       actions = actionsTensor.dataSync();
     }
 
@@ -237,7 +237,7 @@ async function draw(canvas, context, globalNetwork, frame, cars, walls = []) {
 }
 
 function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
-  let paused = true;
+  let paused = false;
   document.getElementById("play-pause").onclick = (e) => {
     paused = !paused;
     baseSpeed = baseSpeed === 0 ? 1 : 0;
@@ -249,12 +249,13 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
   document.getElementById("speed").onchange = (e) => {
     baseSpeed = Number(e.target.value);
   }
+  const frameCt = document.getElementById("frame-ct");
   const canvas = document.getElementById("298-canvas");
   const context = canvas.getContext("2d");
 
   const cars = [];
   for (let c = 0; c < nCars; c++) {
-    cars.push(new Car());
+    cars.push(new Car(useGlobalNetwork));
   }
 
   const walls = [
@@ -262,12 +263,16 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
     new Wall({ p0: [0, 0], p1: [500, 0] }),
     new Wall({ p0: [0, 500], p1: [500, 500] }),
     new Wall({ p0: [500, 500], p1: [500, 0] }),
+    // new Wall({ p0: [250, 400], p1: [150, 150] }),
+    new Wall({ p0: [150, 150], p1: [350, 150] }),
+    new Wall({ p0: [150, 350], p1: [350, 350] }),
+    // new Wall({ p0: [350, 150], p1: [250, 400] }),
   ];
   for (let w = 0; w < nWalls; w++) {
     walls.push(new Wall());
   }
-
-  const globalNetwork = useGlobalNetwork ? new GlobalNetwork(nCars, 10, 4) : null;
+  // done with setup, main bulk:
+  const globalNetwork = useGlobalNetwork ? new GlobalNetwork(true, nCars, 10, 4) : null;
   const collisionCooldowns = new Map();
   const realWorldCooldownTime = 0.5; // wanted cooldown time in seconds 
   let frameRate = 60; // default frame rate
@@ -339,39 +344,21 @@ function main(useGlobalNetwork = true, nCars = 3, nWalls = 2) {
       car.y = Math.min(Math.max(car.y + car.vy * dTime * baseSpeed, Car.radius), 500 - Car.radius);
     }
 
-    draw(canvas, context, globalNetwork, actionsTaken, cars, walls).then(() => {
+    const readFromFile = true;
+    draw(canvas, context, globalNetwork, readFromFile, actionsTaken, cars, walls).then(() => {
       actionsTaken++;
-      if (!paused) {
-        window.requestAnimationFrame(loop);
-      }
+      const frameText = `${actionsTaken} (${actionsTaken < pretrainThreshold ? "pretraining" : "RL"})`;
+      frameCt.innerText = frameText;
+      window.requestAnimationFrame(loop);
     });
   }
   window.requestAnimationFrame(loop);
 }
 
-/*
-let baseRotation = 0;
-document.addEventListener("keydown", e => {
-  switch (e.key) {
-    case "ArrowUp":
-      baseSpeed += 0.1;
-      break;
-    case "ArrowDown":
-      baseSpeed -= 0.1;
-      break;
-    case "ArrowLeft":
-      baseRotation -= 0.1;
-      break;
-    case "ArrowRight":
-      baseRotation += 0.1;
-      break;
-  }
-})
-*/
-
 const nCars = 3;
-const nWalls = 2;
+const nWalls = 0;
 let baseSpeed = 1;
-
+const pretrainThreshold = 2e4;
 const useGlobalNetwork = true;
+
 main(useGlobalNetwork, nCars, nWalls);
